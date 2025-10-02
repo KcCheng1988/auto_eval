@@ -1,0 +1,62 @@
+{
+  "description": "Evaluation configuration - define thresholds and metrics",
+  "thresholds": {
+    "autonomous": {
+      "accuracy": 0.95,
+      "precision": 0.93,
+      "recall": 0.93,
+      "f1_score": 0.93,
+      "hallucination_rate_max": 0.02,
+      "relevance_rate": 0.95,
+      "consistency_rate": 0.98
+    },
+    "human_in_loop": {
+      "accuracy": 0.85,
+      "precision": 0.83,
+      "recall": 0.83,
+      "f1_score": 0.83,
+      "hallucination_rate_max": 0.05,
+      "relevance_rate": 0.85,
+      "consistency_rate": 0.90
+    }
+  },
+  "metrics": [
+    {
+      "name": "accuracy",
+      "description": "Overall accuracy for classification tasks"
+    },
+    {
+      "name": "precision",
+      "description": "Precision score"
+    },
+    {
+      "name": "recall",
+      "description": "Recall score"
+    },
+    {
+      "name": "f1_score",
+      "description": "F1 score for balanced evaluation"
+    },
+    {
+      "name": "hallucination_rate",
+      "description": "Rate of hallucinated content (for generative tasks)"
+    },
+    {
+      "name": "relevance_rate",
+      "description": "Rate of relevant responses"
+    },
+    {
+      "name": "consistency_rate",
+      "description": "Consistency between sandbox and UAT (MIIT)"
+    }
+  ],
+  "evaluation_settings": {
+    "min_sample_size": 30,
+    "miit_required": true,
+    "human_annotation_required_for": [
+      "summarization",
+      "question_answering",
+      "rewriting"
+    ]
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "description": "Template validation configuration - define expected sheets and fields",
+  "sheets": [
+    {
+      "name": "Use Case Information",
+      "required": true
+    },
+    {
+      "name": "Model Information",
+      "required": true
+    },
+    {
+      "name": "Evaluation Samples",
+      "required": true
+    },
+    {
+      "name": "MIIT",
+      "required": false
+    }
+  ],
+  "fields": {
+    "Use Case Information": {
+      "Use Case Name": {
+        "mandatory": true
+      },
+      "Use Case ID": {
+        "mandatory": true
+      },
+      "Department": {
+        "mandatory": true
+      },
+      "Stage": {
+        "mandatory": true
+      },
+      "Description": {
+        "mandatory": false
+      }
+    },
+    "Model Information": {
+      "Model Name": {
+        "mandatory": true
+      },
+      "Model Version": {
+        "mandatory": true
+      },
+      "Task Type": {
+        "mandatory": true
+      },
+      "Prompt Template": {
+        "mandatory": false
+      }
+    },
+    "Evaluation Samples": {
+      "Total Samples": {
+        "mandatory": true
+      }
+    }
+  },
+  "validation_rules": {
+    "Use Case Information": {
+      "Stage": {
+        "type": "string",
+        "allowed_values": ["Autonomous", "Human-in-Loop", "Human in Loop"]
+      }
+    },
+    "Model Information": {
+      "Task Type": {
+        "type": "string",
+        "allowed_values": [
+          "classification",
+          "entity_extraction",
+          "summarization",
+          "question_answering",
+          "rewriting"
+        ]
+      }
+    },
+    "Evaluation Samples": {
+      "Total Samples": {
+        "type": "integer",
+        "min": 30
+      }
+    }
+  }
+}
