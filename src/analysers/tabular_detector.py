@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class TabularDetector:
     """Detects if Excel sheets contain tabular structures, including multiple tables per sheet"""
 
-    def __init__(self, min_table_rows: int = 3, min_table_cols: int = 2, blank_row_threshold: int = 2):
+    def __init__(self, min_table_rows: int = 3, min_table_cols: int = 2, blank_row_threshold: int = 2, blank_col_threshold: int = 1):
         """
         Initialize TabularDetector
 
@@ -20,11 +20,13 @@ class TabularDetector:
             min_table_rows: Minimum rows for a valid table
             min_table_cols: Minimum columns for a valid table
             blank_row_threshold: Number of consecutive blank rows to consider as separator
+            blank_col_threshold: Number of consecutive blank columns to consider as separator
         """
         self.workbook = None
         self.min_table_rows = min_table_rows
         self.min_table_cols = min_table_cols
         self.blank_row_threshold = blank_row_threshold
+        self.blank_col_threshold = blank_col_threshold
 
     def analyse(self, excel_path: str, sheet_name: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -392,7 +394,8 @@ class TabularDetector:
 
     def _find_data_regions(self, sheet: openpyxl.worksheet.worksheet.Worksheet) -> List[Dict[str, int]]:
         """
-        Find disconnected data regions in a sheet that could contain separate tables
+        Find disconnected data regions in a sheet that could contain separate tables.
+        Detects tables separated by blank rows AND/OR blank columns.
 
         Args:
             sheet: openpyxl worksheet
@@ -415,61 +418,56 @@ class TabularDetector:
                 if cell.value is not None and str(cell.value).strip() != '':
                     grid[row_idx, col_idx] = True
 
-        # Find regions separated by blank rows
+        # Use flood fill algorithm to find connected components (regions)
+        visited = np.zeros((max_row, max_col), dtype=bool)
         regions = []
-        current_start_row = None
 
+        def flood_fill(start_row: int, start_col: int) -> Dict[str, int]:
+            """Find connected region using flood fill with separate row/column gap thresholds"""
+            stack = [(start_row, start_col)]
+            min_row, max_row_local = start_row, start_row
+            min_col, max_col_local = start_col, start_col
+
+            while stack:
+                r, c = stack.pop()
+
+                if r < 0 or r >= max_row or c < 0 or c >= max_col:
+                    continue
+                if visited[r, c] or not grid[r, c]:
+                    continue
+
+                visited[r, c] = True
+                min_row = min(min_row, r)
+                max_row_local = max(max_row_local, r)
+                min_col = min(min_col, c)
+                max_col_local = max(max_col_local, c)
+
+                # Check nearby cells with different thresholds for rows vs columns
+                for dr in range(-self.blank_row_threshold, self.blank_row_threshold + 1):
+                    for dc in range(-self.blank_col_threshold, self.blank_col_threshold + 1):
+                        # Skip if both are zero (same cell) or if moving diagonally beyond threshold
+                        if dr == 0 and dc == 0:
+                            continue
+                        # Allow gaps but prefer straight lines (not diagonal)
+                        if abs(dr) + abs(dc) <= max(self.blank_row_threshold, self.blank_col_threshold) + 1:
+                            nr, nc = r + dr, c + dc
+                            if 0 <= nr < max_row and 0 <= nc < max_col:
+                                if grid[nr, nc] and not visited[nr, nc]:
+                                    stack.append((nr, nc))
+
+            return {
+                'start_row': min_row + 1,  # Convert to 1-indexed
+                'end_row': max_row_local + 2,  # Inclusive, +1 for index, +1 for inclusive
+                'start_col': min_col + 1,  # Convert to 1-indexed
+                'end_col': max_col_local + 2  # Inclusive, +1 for index, +1 for inclusive
+            }
+
+        # Find all regions
         for row_idx in range(max_row):
-            row_has_data = grid[row_idx, :].any()
-
-            if row_has_data:
-                if current_start_row is None:
-                    current_start_row = row_idx
-            else:
-                # Empty row - check if we should close current region
-                if current_start_row is not None:
-                    # Count consecutive blank rows ahead
-                    blank_count = 0
-                    for check_idx in range(row_idx, min(row_idx + self.blank_row_threshold + 1, max_row)):
-                        if not grid[check_idx, :].any():
-                            blank_count += 1
-                        else:
-                            break
-
-                    # If enough blank rows, close this region
-                    if blank_count >= self.blank_row_threshold:
-                        # Find actual column boundaries for this region
-                        region_grid = grid[current_start_row:row_idx, :]
-                        col_has_data = region_grid.any(axis=0)
-
-                        if col_has_data.any():
-                            start_col = np.where(col_has_data)[0][0]
-                            end_col = np.where(col_has_data)[0][-1]
-
-                            regions.append({
-                                'start_row': current_start_row + 1,  # Convert to 1-indexed
-                                'end_row': row_idx,  # Exclusive, already 1-indexed equivalent
-                                'start_col': start_col + 1,  # Convert to 1-indexed
-                                'end_col': end_col + 2  # Inclusive end, +1 for index, +1 for inclusive
-                            })
-
-                        current_start_row = None
-
-        # Close final region if exists
-        if current_start_row is not None:
-            region_grid = grid[current_start_row:max_row, :]
-            col_has_data = region_grid.any(axis=0)
-
-            if col_has_data.any():
-                start_col = np.where(col_has_data)[0][0]
-                end_col = np.where(col_has_data)[0][-1]
-
-                regions.append({
-                    'start_row': current_start_row + 1,
-                    'end_row': max_row + 1,
-                    'start_col': start_col + 1,
-                    'end_col': end_col + 2
-                })
+            for col_idx in range(max_col):
+                if grid[row_idx, col_idx] and not visited[row_idx, col_idx]:
+                    region = flood_fill(row_idx, col_idx)
+                    regions.append(region)
 
         # Filter regions by minimum size
         valid_regions = []
@@ -480,7 +478,7 @@ class TabularDetector:
             if row_count >= self.min_table_rows and col_count >= self.min_table_cols:
                 valid_regions.append(region)
 
-        logger.info(f"Found {len(valid_regions)} potential table regions")
+        logger.info(f"Found {len(valid_regions)} potential table regions using flood fill")
         return valid_regions
 
     def _detect_header_at_position(self, df: pd.DataFrame, row_idx: int) -> Dict[str, Any]:
