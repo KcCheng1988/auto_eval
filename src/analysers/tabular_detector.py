@@ -469,9 +469,15 @@ class TabularDetector:
                     region = flood_fill(row_idx, col_idx)
                     regions.append(region)
 
+        # Post-process: Check for footer/summary rows after each region
+        regions_with_footers = []
+        for region in regions:
+            extended_region = self._extend_region_with_footer(region, grid, max_row, max_col)
+            regions_with_footers.append(extended_region)
+
         # Filter regions by minimum size
         valid_regions = []
-        for region in regions:
+        for region in regions_with_footers:
             row_count = region['end_row'] - region['start_row']
             col_count = region['end_col'] - region['start_col']
 
@@ -480,6 +486,74 @@ class TabularDetector:
 
         logger.info(f"Found {len(valid_regions)} potential table regions using flood fill")
         return valid_regions
+
+    def _extend_region_with_footer(self, region: Dict[str, int], grid: np.ndarray,
+                                   max_row: int, max_col: int) -> Dict[str, int]:
+        """
+        Check if there's a footer/summary row after a blank row gap and include it
+
+        Args:
+            region: Initial region boundaries
+            grid: Grid of cell occupancy
+            max_row: Maximum row in sheet
+            max_col: Maximum column in sheet
+
+        Returns:
+            Extended region including footer if found
+        """
+        # Convert back to 0-indexed for grid operations
+        region_end_row = region['end_row'] - 1  # Was already exclusive in 1-indexed
+        region_start_col = region['start_col'] - 1
+        region_end_col = region['end_col'] - 1
+
+        # Look ahead for footer rows (skip up to blank_row_threshold + 1 rows)
+        search_limit = min(region_end_row + self.blank_row_threshold + 3, max_row)
+
+        footer_row_idx = None
+        blank_rows_seen = 0
+
+        for check_row_idx in range(region_end_row, search_limit):
+            row_has_data = grid[check_row_idx, :].any()
+
+            if not row_has_data:
+                blank_rows_seen += 1
+            else:
+                # Found a row with data after blank row(s)
+                if blank_rows_seen > 0 and blank_rows_seen <= self.blank_row_threshold + 1:
+                    # Check if this row aligns with the table's column range
+                    row_data_cols = np.where(grid[check_row_idx, :])[0]
+
+                    if len(row_data_cols) > 0:
+                        row_start_col = row_data_cols[0]
+                        row_end_col = row_data_cols[-1]
+
+                        # Check if footer row overlaps with table columns (allowing some flexibility)
+                        table_col_range = set(range(region_start_col, region_end_col))
+                        footer_col_range = set(range(row_start_col, row_end_col + 1))
+
+                        overlap = len(table_col_range.intersection(footer_col_range))
+                        overlap_ratio = overlap / len(table_col_range) if table_col_range else 0
+
+                        # If footer overlaps significantly with table columns, include it
+                        if overlap_ratio >= 0.5:
+                            footer_row_idx = check_row_idx
+                            logger.debug(f"Found footer row at {check_row_idx + 1} after {blank_rows_seen} blank rows")
+                            # Continue checking for more footer rows
+                            blank_rows_seen = 0
+                        else:
+                            # Not aligned, stop searching
+                            break
+                else:
+                    # Too many blank rows or continuous data, stop
+                    break
+
+        # Extend region if footer found
+        if footer_row_idx is not None:
+            extended_region = region.copy()
+            extended_region['end_row'] = footer_row_idx + 2  # +1 for 0->1 index, +1 for exclusive
+            return extended_region
+
+        return region
 
     def _detect_header_at_position(self, df: pd.DataFrame, row_idx: int) -> Dict[str, Any]:
         """
