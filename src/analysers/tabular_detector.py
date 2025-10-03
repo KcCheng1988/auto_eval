@@ -557,6 +557,158 @@ class TabularDetector:
 
         return [table]
 
+    def extract_tables(self, excel_path: str, sheet_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Extract all detected tables as DataFrames
+
+        Args:
+            excel_path: Path to Excel file
+            sheet_name: Optional specific sheet
+
+        Returns:
+            Dictionary with extracted tables organized by sheet
+        """
+        analysis = self.analyse(excel_path, sheet_name)
+
+        extracted_tables = {
+            "file_path": excel_path,
+            "sheets": []
+        }
+
+        for sheet_analysis in analysis['sheets_analyzed']:
+            sheet_data = {
+                "sheet_name": sheet_analysis['sheet_name'],
+                "tables": []
+            }
+
+            if 'error' in sheet_analysis or 'message' in sheet_analysis:
+                sheet_data['error'] = sheet_analysis.get('error') or sheet_analysis.get('message')
+                extracted_tables['sheets'].append(sheet_data)
+                continue
+
+            for table in sheet_analysis.get('tables', []):
+                if 'error' in table:
+                    sheet_data['tables'].append({
+                        'table_id': table['table_id'],
+                        'error': table['error']
+                    })
+                    continue
+
+                # Extract the DataFrame for this table
+                region = table['region']
+                try:
+                    df = pd.read_excel(
+                        excel_path,
+                        sheet_name=sheet_analysis['sheet_name'],
+                        header=None,
+                        skiprows=region['start_row'] - 1,
+                        nrows=region['end_row'] - region['start_row'],
+                        usecols=range(region['start_col'] - 1, region['end_col'] - 1)
+                    )
+
+                    # Try to set proper headers if detected
+                    if table['indicators'].get('has_header_row') and len(df) > 0:
+                        # Use first row as header
+                        df.columns = df.iloc[0]
+                        df = df[1:].reset_index(drop=True)
+
+                    sheet_data['tables'].append({
+                        'table_id': table['table_id'],
+                        'region': region,
+                        'is_tabular': table['is_tabular'],
+                        'confidence_score': table['confidence_score'],
+                        'dataframe': df,
+                        'shape': df.shape
+                    })
+
+                except Exception as e:
+                    logger.error(f"Error extracting table {table['table_id']}: {str(e)}")
+                    sheet_data['tables'].append({
+                        'table_id': table['table_id'],
+                        'region': region,
+                        'error': str(e)
+                    })
+
+            extracted_tables['sheets'].append(sheet_data)
+
+        return extracted_tables
+
+    def extract_table_by_id(self, excel_path: str, sheet_name: str, table_id: int) -> Optional[pd.DataFrame]:
+        """
+        Extract a specific table by its ID
+
+        Args:
+            excel_path: Path to Excel file
+            sheet_name: Sheet name
+            table_id: Table ID to extract
+
+        Returns:
+            DataFrame of the table, or None if not found
+        """
+        extracted = self.extract_tables(excel_path, sheet_name)
+
+        for sheet_data in extracted['sheets']:
+            if sheet_data['sheet_name'] == sheet_name:
+                for table in sheet_data['tables']:
+                    if table['table_id'] == table_id and 'dataframe' in table:
+                        return table['dataframe']
+
+        logger.warning(f"Table {table_id} not found in sheet '{sheet_name}'")
+        return None
+
+    def save_tables_to_files(self, excel_path: str, output_dir: str, sheet_name: Optional[str] = None,
+                            file_format: str = 'csv') -> List[str]:
+        """
+        Save each detected table to separate files
+
+        Args:
+            excel_path: Path to Excel file
+            output_dir: Directory to save extracted tables
+            sheet_name: Optional specific sheet
+            file_format: Output format ('csv', 'excel', 'json')
+
+        Returns:
+            List of saved file paths
+        """
+        import os
+        from pathlib import Path
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        extracted = self.extract_tables(excel_path, sheet_name)
+        saved_files = []
+
+        for sheet_data in extracted['sheets']:
+            sheet_name_clean = sheet_data['sheet_name'].replace(' ', '_').replace('/', '_')
+
+            for table in sheet_data['tables']:
+                if 'dataframe' not in table:
+                    continue
+
+                table_id = table['table_id']
+                df = table['dataframe']
+
+                # Create filename
+                base_name = f"{sheet_name_clean}_table_{table_id}"
+
+                if file_format == 'csv':
+                    file_path = output_path / f"{base_name}.csv"
+                    df.to_csv(file_path, index=False)
+                elif file_format == 'excel':
+                    file_path = output_path / f"{base_name}.xlsx"
+                    df.to_excel(file_path, index=False)
+                elif file_format == 'json':
+                    file_path = output_path / f"{base_name}.json"
+                    df.to_json(file_path, orient='records', indent=2)
+                else:
+                    raise ValueError(f"Unsupported format: {file_format}")
+
+                saved_files.append(str(file_path))
+                logger.info(f"Saved table {table_id} to {file_path}")
+
+        return saved_files
+
     def get_detection_summary(self, excel_path: str, sheet_name: Optional[str] = None) -> str:
         """
         Get a text summary of tabular structure detection (supports multiple tables per sheet)

@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 
 from src.analysers.excel_analyser import ExcelAnalyser
+from src.analysers.format_checker import FormatChecker
 from src.utils.logger import setup_logger
 
 
@@ -27,6 +28,11 @@ Examples:
   python analyse_excel.py file.xlsx --quality
   python analyse_excel.py file.xlsx --statistics
   python analyse_excel.py file.xlsx --tabular
+
+  # Extract tables to separate files
+  python analyse_excel.py file.xlsx --extract-tables
+  python analyse_excel.py file.xlsx --extract-tables --extract-format excel
+  python analyse_excel.py file.xlsx --extract-tables --extract-dir my_tables --sheet "Sheet1"
 
   # Analyze specific sheet
   python analyse_excel.py file.xlsx --sheet "Sheet1" --quality
@@ -97,6 +103,33 @@ Examples:
     )
 
     parser.add_argument(
+        "--extract-tables",
+        action="store_true",
+        help="Extract detected tables to separate files"
+    )
+
+    parser.add_argument(
+        "--extract-dir",
+        type=str,
+        default="extracted_tables",
+        help="Directory to save extracted tables (default: extracted_tables)"
+    )
+
+    parser.add_argument(
+        "--extract-format",
+        type=str,
+        choices=["csv", "excel", "json"],
+        default="csv",
+        help="Format for extracted tables (default: csv)"
+    )
+
+    parser.add_argument(
+        "--format-check",
+        action="store_true",
+        help="Run only format inconsistency check"
+    )
+
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable verbose logging"
@@ -146,6 +179,26 @@ Examples:
             # Tabular detection only
             tabular = analyser.tabular_detector
             result = tabular.get_detection_summary(args.excel_path, args.sheet)
+            print(result)
+
+        elif args.extract_tables:
+            # Extract tables to files
+            tabular = analyser.tabular_detector
+            print(f"Extracting tables from {args.excel_path}...")
+            saved_files = tabular.save_tables_to_files(
+                args.excel_path,
+                args.extract_dir,
+                args.sheet,
+                args.extract_format
+            )
+            print(f"\n✓ Extracted {len(saved_files)} tables to {args.extract_dir}/")
+            for file_path in saved_files:
+                print(f"  - {file_path}")
+
+        elif args.format_check:
+            # Format inconsistency check only
+            format_checker = FormatChecker()
+            result = format_checker.get_summary(args.excel_path, args.sheet)
             print(result)
 
         else:
