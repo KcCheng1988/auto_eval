@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple
 from collections import Counter
 
-from ..models.comparison_strategies.utils import NumericConverter, DateTimeConverter
+from ..models.comparison_strategies.utils import NumericConverter, DateTimeConverter, is_null_like
 
 class FieldType:
     """Enum-like class for field types"""
@@ -65,24 +65,31 @@ class FieldClassifier:
         Classify a single field based on name and values
 
         Args:
-            field_name: Name of the field
+            field_name: Name of the field (will be cleaned)
             field_values: List of field values (will sample if too large)
             sample_size: Number of values to sample for analysis
 
         Returns:
             Dictionary with classification results
         """
-        # Sample values if list is too large
-        if len(field_values) > sample_size:
+        # Clean field name - remove leading/trailing whitespace and newlines
+        if field_name is not None:
+            field_name = str(field_name).strip().replace('\n', ' ').replace('\t', ' ').replace('\r', ' ')
+            # Collapse multiple spaces into one
+            import re
+            field_name = re.sub(r'\s+', ' ', field_name)
+
+        # Filter out null-like values first, before sampling
+        non_null_values = [v for v in field_values if not is_null_like(v)]
+
+        # Sample from non-null values if list is too large
+        if len(non_null_values) > sample_size:
             import random
-            sampled_values = random.sample(field_values, sample_size)
+            sampled_values = random.sample(non_null_values, sample_size)
         else:
-            sampled_values = field_values
+            sampled_values = non_null_values
 
-        # Remove None/empty values for analysis
-        non_empty_values = [v for v in sampled_values if v is not None and str(v).strip()]
-
-        if not non_empty_values:
+        if not sampled_values:
             return self._create_classification_result(
                 field_name=field_name,
                 field_type=FieldType.UNKNOWN,
@@ -339,8 +346,18 @@ class FieldClassifier:
         Returns:
             DataFrame with classification results
         """
-        # Group by field name and aggregate values
-        grouped = df.groupby(field_name_col)[field_value_col].apply(list).reset_index()
+        # Create a copy to avoid modifying original
+        df_clean = df.copy()
+
+        # Clean field names - remove leading/trailing whitespace and newlines
+        import re
+        df_clean[field_name_col] = df_clean[field_name_col].apply(
+            lambda x: re.sub(r'\s+', ' ', str(x).strip().replace('\n', ' ').replace('\t', ' ').replace('\r', ' '))
+            if x is not None else x
+        )
+
+        # Group by cleaned field name and aggregate values
+        grouped = df_clean.groupby(field_name_col)[field_value_col].apply(list).reset_index()
 
         results = []
         for _, row in grouped.iterrows():
