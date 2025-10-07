@@ -465,6 +465,7 @@ class FieldClassifier:
             field_value_col: Column name containing field values
         """
         from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.worksheet.table import Table, TableStyleInfo
 
         classification_df = self.classify_dataframe(df, field_name_col, field_value_col)
 
@@ -488,6 +489,34 @@ class FieldClassifier:
 
             # Get worksheet for formatting
             worksheet = writer.sheets['Field Classification']
+
+            # Convert DataFrame to Excel Table (Ctrl+T equivalent)
+            num_rows = len(classification_df)
+            num_cols = len(classification_df.columns)
+
+            # Define table range (A1 to last column and row)
+            last_col_letter = chr(64 + num_cols)  # Works for A-Z
+            if num_cols > 26:
+                # Handle columns beyond Z (AA, AB, etc.)
+                last_col_letter = chr(64 + (num_cols - 1) // 26) + chr(65 + (num_cols - 1) % 26)
+
+            table_range = f"A1:{last_col_letter}{num_rows + 1}"
+
+            # Create table with a nice style
+            table = Table(displayName="FieldClassificationTable", ref=table_range)
+
+            # Apply table style (like the default Ctrl+T style)
+            style = TableStyleInfo(
+                name="TableStyleMedium9",  # Blue table style
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=True,
+                showColumnStripes=False
+            )
+            table.tableStyleInfo = style
+
+            # Add table to worksheet
+            worksheet.add_table(table)
 
             # Find column indices (Excel is 1-indexed)
             field_type_col_idx = list(classification_df.columns).index('field_type') + 1
@@ -609,4 +638,7 @@ class FieldClassifier:
         print(f"Total fields classified: {len(classification_df)}")
         print(f"\nField type distribution:")
         print(classification_df['field_type'].value_counts())
-        print(f"\nℹ️  Excel file includes dropdown menus for field_type and recommended_strategy")
+        print(f"\n✨ Excel enhancements:")
+        print(f"  • Formatted as Excel Table with filters (Ctrl+T)")
+        print(f"  • Dropdown menus for field_type and recommended_strategy")
+        print(f"  • Instructions sheet with usage guide")
