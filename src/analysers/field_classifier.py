@@ -597,6 +597,29 @@ class FieldClassifier:
             strategy_range = f'{strategy_col_letter}2:{strategy_col_letter}{num_rows + 1}'
             strategy_dropdown.add(strategy_range)
 
+            # Add TRUE/FALSE dropdowns for all setting_* columns
+            setting_columns = [col for col in classification_df.columns if col.startswith('setting_')]
+
+            if setting_columns:
+                # Create TRUE/FALSE dropdown
+                bool_dropdown = DataValidation(
+                    type="list",
+                    formula1='"TRUE,FALSE"',
+                    allow_blank=True  # Allow blank for optional settings
+                )
+                bool_dropdown.error = 'Please select TRUE or FALSE'
+                bool_dropdown.errorTitle = 'Invalid Entry'
+                bool_dropdown.prompt = 'Select TRUE or FALSE'
+                bool_dropdown.promptTitle = 'Boolean Setting'
+                worksheet.add_data_validation(bool_dropdown)
+
+                # Apply to all setting columns
+                for setting_col in setting_columns:
+                    setting_col_idx = list(classification_df.columns).index(setting_col) + 1
+                    setting_col_letter = col_index_to_letter(setting_col_idx)
+                    setting_range = f'{setting_col_letter}2:{setting_col_letter}{num_rows + 1}'
+                    bool_dropdown.add(setting_range)
+
             # Auto-adjust column widths
             for idx, col in enumerate(classification_df.columns, 1):
                 max_length = max(
@@ -616,8 +639,9 @@ class FieldClassifier:
                 ['3. Click on "field_type" cells to see dropdown menu with options:'],
                 [f'   - {", ".join(field_type_options)}'],
                 ['4. Click on "recommended_strategy" cells to see dropdown menu with available strategies'],
-                ['5. Adjust settings columns (setting_*) as needed'],
-                ['6. Save the file when done'],
+                ['5. Click on "setting_*" columns to see TRUE/FALSE dropdown menus'],
+                ['6. Adjust numeric settings (e.g., decimal_precision, tolerance_seconds) manually'],
+                ['7. Save the file when done'],
                 ['7. Use FieldConfigLoader to load your edited configuration'],
                 [''],
                 ['Field Type -> Strategy Mapping:'],
@@ -641,4 +665,5 @@ class FieldClassifier:
         print(f"\n✨ Excel enhancements:")
         print(f"  • Formatted as Excel Table with filters (Ctrl+T)")
         print(f"  • Dropdown menus for field_type and recommended_strategy")
+        print(f"  • TRUE/FALSE dropdowns for all setting_* columns")
         print(f"  • Instructions sheet with usage guide")
