@@ -2,7 +2,52 @@
 
 import re
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, Set
+
+
+# Centralized null-like string values
+NULL_LIKE_VALUES: Set[str] = {
+    'none', 'null', 'nil', 'n/a', 'na', 'nan', '-',
+    '#n/a', '#na', 'undefined', 'empty', '', 'missing'
+}
+
+
+def is_null_like(value: Any) -> bool:
+    """
+    Check if a value represents a null/missing value
+
+    Handles:
+    - None, NaN
+    - Empty strings
+    - String representations: 'none', 'null', 'nil', 'n/a', 'na', '-', etc.
+
+    Args:
+        value: Value to check
+
+    Returns:
+        True if value is null-like, False otherwise
+    """
+    # Handle None
+    if value is None:
+        return True
+
+    # Handle NaN (float)
+    if isinstance(value, float):
+        import math
+        if math.isnan(value):
+            return True
+
+    # Handle empty string
+    if value == '':
+        return True
+
+    # Handle string representations of null
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in NULL_LIKE_VALUES:
+            return True
+
+    return False
 
 
 class DateTimeConverter:
@@ -19,7 +64,8 @@ class DateTimeConverter:
         Returns:
             date object or None if conversion fails
         """
-        if value is None:
+        # Check for null-like values first
+        if is_null_like(value):
             return None
 
         # Already a date (but not datetime)
@@ -69,7 +115,8 @@ class DateTimeConverter:
         Returns:
             datetime object or None if conversion fails
         """
-        if value is None:
+        # Check for null-like values first
+        if is_null_like(value):
             return None
 
         # Already a datetime
@@ -133,8 +180,8 @@ class NumericConverter:
         Returns:
             Float value or None if cannot convert
         """
-        # Handle None, NaN, empty strings
-        if value is None or value == '' or (isinstance(value, float) and str(value).lower() == 'nan'):
+        # Check for null-like values first
+        if is_null_like(value):
             return None
 
         # Already a number
@@ -145,7 +192,7 @@ class NumericConverter:
         # Convert to string for processing
         value_str = str(value).strip()
 
-        if not value_str or value_str.lower() in ['none', 'null', 'n/a', 'na', '-', '#n/a']:
+        if not value_str:
             return None
 
         # Handle percentage (keep as percentage value, not decimal)

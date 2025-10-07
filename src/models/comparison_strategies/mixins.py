@@ -1,4 +1,10 @@
-from typing import Optional
+from typing import Optional, Any
+
+try:
+    from .utils import is_null_like
+except ImportError:
+    from src.models.comparison_strategies.utils import is_null_like
+
 
 class StringNormalizationMixin:
     """Mixin providing common string normalization functionality"""
@@ -19,19 +25,20 @@ class StringNormalizationMixin:
         self.strip_line_breaks = strip_line_breaks
         super().__init__(**kwargs)  # Pass other parameters to the next class in the MRO
 
-    def normalize_string(self, value: str) -> Optional[str]:
+    def normalize_string(self, value: Any) -> Optional[str]:
         """
         Normalize a string value based on configuration
 
         Args:
             value: Value to normalize
-        
+
         Returns:
-            Normalized string or None if value is None/empty
+            Normalized string or None if value is None/empty/null-like
         """
-        if value is None:
+        # Check for null-like values
+        if is_null_like(value):
             return None
-        
+
         result = str(value)
 
         # Strip line breaks
