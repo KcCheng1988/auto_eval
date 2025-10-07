@@ -4,7 +4,7 @@ import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple
 from collections import Counter
 
-from .comparison_strategies.utils import NumericConverter, DateTimeConverter
+from ..models.comparison_strategies.utils import NumericConverter, DateTimeConverter
 
 class FieldType:
     """Enum-like class for field types"""
