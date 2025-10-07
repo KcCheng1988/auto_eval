@@ -102,17 +102,17 @@ class FieldClassifier:
         name_hints = self._get_name_hints(field_name_lower)
 
         # Analyze field values
-        value_type_counts = self._analyze_values(non_empty_values)
+        value_type_counts = self._analyze_values(sampled_values)
 
         # Determine field type based on name hints and value analysis
         field_type, confidence, reason = self._determine_field_type(
             name_hints,
             value_type_counts,
-            non_empty_values
+            sampled_values
         )
 
         # Generate recommended strategy and settings
-        strategy, settings = self._recommend_strategy(field_type, non_empty_values)
+        strategy, settings = self._recommend_strategy(field_type, sampled_values)
 
         return self._create_classification_result(
             field_name=field_name,
@@ -121,7 +121,7 @@ class FieldClassifier:
             reason=reason,
             recommended_strategy=strategy,
             recommended_settings=settings,
-            value_sample=non_empty_values[:5]  # Include sample values
+            value_sample=sampled_values[:5]  # Include sample values
         )
 
     def _get_name_hints(self, field_name_lower: str) -> Dict[str, bool]:
