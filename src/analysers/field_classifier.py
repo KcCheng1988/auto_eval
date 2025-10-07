@@ -3,8 +3,12 @@
 import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple
 from collections import Counter
+import inspect
 
 from ..models.comparison_strategies.utils import NumericConverter, DateTimeConverter, is_null_like
+from ..models.comparison_strategies.base import ComparisonStrategy
+import sys
+import importlib
 
 class FieldType:
     """Enum-like class for field types"""
@@ -26,6 +30,62 @@ class FieldClassifier:
     - Recommended comparison strategy
     - Suggested normalization settings
     """
+
+    @staticmethod
+    def _discover_strategies() -> Dict[str, List[str]]:
+        """
+        Automatically discover all available comparison strategies
+
+        Returns:
+            Dictionary mapping field types to list of strategy class names
+        """
+        # Import all strategy modules
+        from ..models import comparison_strategies
+
+        strategy_map = {
+            FieldType.NAME: [],
+            FieldType.DATETIME: [],
+            FieldType.DATE: [],
+            FieldType.NUMERIC: [],
+            FieldType.STRING: [],
+            FieldType.ADDRESS: [],
+            FieldType.UNKNOWN: []
+        }
+
+        # Get all classes from comparison_strategies module
+        for name, obj in inspect.getmembers(comparison_strategies, inspect.isclass):
+            # Skip base classes
+            if name in ['ComparisonStrategy', 'MatchResult']:
+                continue
+
+            # Check if it's a ComparisonStrategy subclass
+            if issubclass(obj, ComparisonStrategy) and obj is not ComparisonStrategy:
+                # Categorize by naming convention
+                name_lower = name.lower()
+
+                if 'name' in name_lower:
+                    strategy_map[FieldType.NAME].append(name)
+                elif 'datetime' in name_lower or 'timestamp' in name_lower:
+                    strategy_map[FieldType.DATETIME].append(name)
+                elif 'date' in name_lower and 'datetime' not in name_lower:
+                    strategy_map[FieldType.DATE].append(name)
+                elif 'numeric' in name_lower or 'number' in name_lower:
+                    strategy_map[FieldType.NUMERIC].append(name)
+                elif 'string' in name_lower or 'text' in name_lower:
+                    strategy_map[FieldType.STRING].append(name)
+                    # String strategies can also be used for addresses
+                    strategy_map[FieldType.ADDRESS].append(name)
+                else:
+                    # Default to string if no specific category
+                    strategy_map[FieldType.STRING].append(name)
+
+        # Ensure each field type has at least one strategy
+        for field_type in strategy_map:
+            if not strategy_map[field_type]:
+                # Fallback to string strategies
+                strategy_map[field_type] = ['ExactStringMatch']
+
+        return strategy_map
 
     def __init__(self):
         # Keywords for field name pattern matching
@@ -396,7 +456,7 @@ class FieldClassifier:
         field_value_col: str = 'field_value'
     ):
         """
-        Classify fields and save results to Excel for manual review
+        Classify fields and save results to Excel for manual review with dropdown menus
 
         Args:
             df: DataFrame with field names and values
@@ -404,14 +464,109 @@ class FieldClassifier:
             field_name_col: Column name containing field names
             field_value_col: Column name containing field values
         """
+        from openpyxl.worksheet.datavalidation import DataValidation
+
         classification_df = self.classify_dataframe(df, field_name_col, field_value_col)
 
-        # Save to Excel with formatting
+        # Define dropdown options for field types
+        field_type_options = [
+            FieldType.NAME,
+            FieldType.DATETIME,
+            FieldType.DATE,
+            FieldType.NUMERIC,
+            FieldType.STRING,
+            FieldType.ADDRESS,
+            FieldType.UNKNOWN
+        ]
+
+        # Automatically discover all available strategies
+        strategy_map = self._discover_strategies()
+
+        # Save to Excel with formatting and dropdowns
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             classification_df.to_excel(writer, sheet_name='Field Classification', index=False)
 
             # Get worksheet for formatting
             worksheet = writer.sheets['Field Classification']
+
+            # Find column indices (Excel is 1-indexed)
+            field_type_col_idx = list(classification_df.columns).index('field_type') + 1
+            strategy_col_idx = list(classification_df.columns).index('recommended_strategy') + 1
+
+            # Convert column index to Excel letter (A, B, C, ...)
+            def col_index_to_letter(idx):
+                """Convert 1-based column index to Excel letter"""
+                letter = ''
+                while idx > 0:
+                    idx -= 1
+                    letter = chr(65 + (idx % 26)) + letter
+                    idx //= 26
+                return letter
+
+            field_type_col_letter = col_index_to_letter(field_type_col_idx)
+            strategy_col_letter = col_index_to_letter(strategy_col_idx)
+
+            # Add dropdown for field_type column
+            field_type_dropdown = DataValidation(
+                type="list",
+                formula1=f'"{",".join(field_type_options)}"',
+                allow_blank=False
+            )
+            field_type_dropdown.error = 'Invalid field type'
+            field_type_dropdown.errorTitle = 'Invalid Entry'
+            field_type_dropdown.prompt = 'Select field type'
+            field_type_dropdown.promptTitle = 'Field Type'
+            worksheet.add_data_validation(field_type_dropdown)
+
+            # Apply field_type dropdown to all data rows
+            num_rows = len(classification_df)
+            field_type_range = f'{field_type_col_letter}2:{field_type_col_letter}{num_rows + 1}'
+            field_type_dropdown.add(field_type_range)
+
+            # Create a reference sheet with strategy options for each field type
+            strategy_sheet = writer.book.create_sheet('Strategy_Options')
+
+            # Write strategy options to reference sheet
+            row_offset = 1
+            for field_type, strategies in strategy_map.items():
+                # Write field type as header
+                strategy_sheet.cell(row=row_offset, column=1, value=field_type)
+
+                # Write strategies below
+                for i, strategy in enumerate(strategies, start=1):
+                    strategy_sheet.cell(row=row_offset + i, column=1, value=strategy)
+
+                # Define named range for this field type's strategies
+                range_name = f"{field_type.upper().replace('-', '_')}_STRATEGIES"
+                start_row = row_offset + 1
+                end_row = row_offset + len(strategies)
+                range_ref = f"Strategy_Options!$A${start_row}:$A${end_row}"
+
+                # Add named range to workbook
+                writer.book.create_named_range(range_name, strategy_sheet, range_ref)
+
+                row_offset += len(strategies) + 2  # Leave gap between groups
+
+            # Note: Dynamic dropdowns based on field_type require Excel formulas
+            # For now, add a general dropdown with all strategies
+            all_strategies = set()
+            for strategies in strategy_map.values():
+                all_strategies.update(strategies)
+
+            strategy_dropdown = DataValidation(
+                type="list",
+                formula1=f'"{",".join(sorted(all_strategies))}"',
+                allow_blank=False
+            )
+            strategy_dropdown.error = 'Invalid strategy'
+            strategy_dropdown.errorTitle = 'Invalid Entry'
+            strategy_dropdown.prompt = 'Select comparison strategy'
+            strategy_dropdown.promptTitle = 'Comparison Strategy'
+            worksheet.add_data_validation(strategy_dropdown)
+
+            # Apply strategy dropdown to all data rows
+            strategy_range = f'{strategy_col_letter}2:{strategy_col_letter}{num_rows + 1}'
+            strategy_dropdown.add(strategy_range)
 
             # Auto-adjust column widths
             for idx, col in enumerate(classification_df.columns, 1):
@@ -419,9 +574,39 @@ class FieldClassifier:
                     classification_df[col].astype(str).apply(len).max(),
                     len(col)
                 )
-                worksheet.column_dimensions[chr(64 + idx)].width = min(max_length + 2, 50)
+                worksheet.column_dimensions[col_index_to_letter(idx)].width = min(max_length + 2, 50)
+
+            # Add instructions sheet
+            instructions_sheet = writer.book.create_sheet('Instructions', 0)
+            instructions = [
+                ['Field Classification Instructions'],
+                [''],
+                ['How to use this file:'],
+                ['1. Go to the "Field Classification" sheet'],
+                ['2. Review the auto-detected field types and strategies'],
+                ['3. Click on "field_type" cells to see dropdown menu with options:'],
+                [f'   - {", ".join(field_type_options)}'],
+                ['4. Click on "recommended_strategy" cells to see dropdown menu with available strategies'],
+                ['5. Adjust settings columns (setting_*) as needed'],
+                ['6. Save the file when done'],
+                ['7. Use FieldConfigLoader to load your edited configuration'],
+                [''],
+                ['Field Type -> Strategy Mapping:'],
+            ]
+
+            for field_type, strategies in strategy_map.items():
+                instructions.append([f'{field_type}:', ', '.join(strategies)])
+
+            for row_idx, row_data in enumerate(instructions, start=1):
+                for col_idx, cell_value in enumerate(row_data, start=1):
+                    instructions_sheet.cell(row=row_idx, column=col_idx, value=cell_value)
+
+            # Format instructions sheet
+            instructions_sheet.column_dimensions['A'].width = 50
+            instructions_sheet.column_dimensions['B'].width = 60
 
         print(f"Classification results saved to {output_path}")
         print(f"Total fields classified: {len(classification_df)}")
         print(f"\nField type distribution:")
         print(classification_df['field_type'].value_counts())
+        print(f"\nℹ️  Excel file includes dropdown menus for field_type and recommended_strategy")
