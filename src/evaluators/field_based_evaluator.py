@@ -52,7 +52,6 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         file_name: str = "",
         task_type: TaskType = TaskType.ENTITY_EXTRACTION,
         ops_evaluation: Optional[bool] = None,
-        dc_evaluation: Optional[bool] = None,
         prompt_id: Optional[str] = None,
         input_text: Optional[str] = None,
         base_field: Optional[str] = None
@@ -67,14 +66,13 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
             category: Category/group for this sample
             file_name: File identifier
             task_type: Type of task
-            ops_evaluation: Manual Ops evaluation (Pass=True, Fail=False)
-            dc_evaluation: Manual DC evaluation (Pass=True, Fail=False)
+            ops_evaluation: Manual Ops evaluation from Excel (Pass=True, Fail=False)
             prompt_id: Prompt identifier
             input_text: Input text used
             base_field: Base field in hierarchy
 
         Returns:
-            FieldEvaluationResult object
+            FieldEvaluationResult object with automated DC evaluation
         """
         # Get strategy for this field
         strategy = self.field_strategies.get(field_name)
@@ -93,15 +91,24 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
                 similarity_score=None,
                 strategy_used=None,
                 ops_evaluation=ops_evaluation,
-                dc_evaluation=dc_evaluation,
-                evaluation_agreement=(ops_evaluation == dc_evaluation) if (ops_evaluation is not None and dc_evaluation is not None) else None,
+                dc_evaluation=None,  # No strategy = no DC evaluation
+                evaluation_agreement=None,
                 prompt_id=prompt_id,
                 input_text=input_text
             )
 
-        # Apply strategy
+        # Apply strategy to get comparison result
         match_result = strategy.compare(model_output, golden_answer)
         similarity_score = strategy.similarity_score(model_output, golden_answer)
+
+        # DC evaluation is automated based on comparison result
+        # Pass (True) if EXACT_MATCH, Fail (False) otherwise
+        dc_evaluation = (match_result == MatchResult.EXACT_MATCH) if match_result else None
+
+        # Calculate agreement between Ops (manual) and DC (automated)
+        evaluation_agreement = None
+        if ops_evaluation is not None and dc_evaluation is not None:
+            evaluation_agreement = (ops_evaluation == dc_evaluation)
 
         return FieldEvaluationResult(
             category=category,
@@ -115,8 +122,8 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
             similarity_score=similarity_score,
             strategy_used=strategy.__class__.__name__,
             ops_evaluation=ops_evaluation,
-            dc_evaluation=dc_evaluation,
-            evaluation_agreement=(ops_evaluation == dc_evaluation) if (ops_evaluation is not None and dc_evaluation is not None) else None,
+            dc_evaluation=dc_evaluation,  # Automated based on comparison
+            evaluation_agreement=evaluation_agreement,
             prompt_id=prompt_id,
             input_text=input_text
         )
@@ -131,13 +138,15 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         file_name_col: str = 'file name or unique identifier',
         task_type_col: str = 'task categorization',
         ops_eval_col: str = 'ops evaluation (accuracy)',
-        dc_eval_col: str = 'DC evaluation (accuracy)',
         base_field_col: str = 'base field',
         prompt_id_col: str = 'prompt or prompt id',
         input_text_col: str = 'input text'
     ) -> List[FieldEvaluationResult]:
         """
         Evaluate entire dataset
+
+        DC evaluation is automatically generated based on comparison strategy results.
+        Ops evaluation is read from Excel as manual ground truth.
 
         Args:
             df: DataFrame with evaluation data
@@ -147,14 +156,13 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
             category_col: Column name for categories
             file_name_col: Column name for file identifiers
             task_type_col: Column name for task types
-            ops_eval_col: Column name for Ops evaluations
-            dc_eval_col: Column name for DC evaluations
+            ops_eval_col: Column name for Ops evaluations (manual)
             base_field_col: Column name for base field
             prompt_id_col: Column name for prompt ID
             input_text_col: Column name for input text
 
         Returns:
-            List of FieldEvaluationResult objects
+            List of FieldEvaluationResult objects with automated DC evaluation
         """
         results = []
 
@@ -170,13 +178,11 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
             else:
                 task_type = TaskType.ENTITY_EXTRACTION  # Default
 
-            # Parse evaluations (Pass/Fail -> True/False)
+            # Parse Ops evaluation (manual, from Excel): Pass/Fail -> True/False
             ops_eval_str = str(row.get(ops_eval_col, '')).strip().lower()
             ops_evaluation = True if ops_eval_str == 'pass' else (False if ops_eval_str == 'fail' else None)
 
-            dc_eval_str = str(row.get(dc_eval_col, '')).strip().lower()
-            dc_evaluation = True if dc_eval_str == 'pass' else (False if dc_eval_str == 'fail' else None)
-
+            # DC evaluation is automated - generated by evaluate_sample()
             result = self.evaluate_sample(
                 field_name=self.clean_field_name(row.get(field_name_col, '')),
                 model_output=row.get(model_output_col),
@@ -185,7 +191,6 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
                 file_name=str(row.get(file_name_col, '')),
                 task_type=task_type,
                 ops_evaluation=ops_evaluation,
-                dc_evaluation=dc_evaluation,
                 prompt_id=str(row.get(prompt_id_col, '')) if prompt_id_col in row else None,
                 input_text=str(row.get(input_text_col, '')) if input_text_col in row else None,
                 base_field=str(row.get(base_field_col, '')) if base_field_col in row else None
