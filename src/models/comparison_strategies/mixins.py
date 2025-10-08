@@ -1,9 +1,71 @@
 from typing import Optional, Any
+import re
 
 try:
     from .utils import is_null_like
 except ImportError:
     from src.models.comparison_strategies.utils import is_null_like
+
+
+class FieldNamePreprocessingMixin:
+    """Mixin for consistent field name preprocessing across the application"""
+
+    @staticmethod
+    def clean_field_name(field_name: Any) -> str:
+        """
+        Clean and normalize field name
+
+        Operations performed:
+        1. Convert to string
+        2. Strip leading/trailing whitespace
+        3. Remove newlines (\\n) and carriage returns (\\r)
+        4. Remove tabs (\\t)
+        5. Collapse multiple spaces into single space
+
+        Args:
+            field_name: Raw field name (can be any type)
+
+        Returns:
+            Cleaned field name string
+
+        Examples:
+            >>> FieldNamePreprocessingMixin.clean_field_name('  customer_name  ')
+            'customer_name'
+            >>> FieldNamePreprocessingMixin.clean_field_name('customer\\nname')
+            'customer name'
+            >>> FieldNamePreprocessingMixin.clean_field_name('customer    name')
+            'customer name'
+        """
+        if field_name is None:
+            return ''
+
+        # Convert to string and strip whitespace
+        cleaned = str(field_name).strip()
+
+        # Replace newlines, carriage returns, and tabs with space
+        cleaned = cleaned.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
+        # Collapse multiple spaces into single space
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+
+        return cleaned
+
+    @staticmethod
+    def clean_field_names_in_list(field_names: list) -> list:
+        """
+        Clean multiple field names
+
+        Args:
+            field_names: List of raw field names
+
+        Returns:
+            List of cleaned field names
+
+        Examples:
+            >>> FieldNamePreprocessingMixin.clean_field_names_in_list(['  name  ', 'age\\n'])
+            ['name', 'age']
+        """
+        return [FieldNamePreprocessingMixin.clean_field_name(fn) for fn in field_names]
 
 
 class StringNormalizationMixin:

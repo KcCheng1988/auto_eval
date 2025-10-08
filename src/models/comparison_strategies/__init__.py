@@ -2,6 +2,7 @@
 
 from .base import ComparisonStrategy, MatchResult
 from .utils import is_null_like, NULL_LIKE_VALUES
+from .mixins import FieldNamePreprocessingMixin, StringNormalizationMixin
 from .name import ExactNameMatch, InvertedNameMatch
 from .datetime import (
     ExactDateTimeStringMatch,
@@ -29,6 +30,7 @@ __all__ = [
     # Utilities
     'is_null_like',
     'NULL_LIKE_VALUES',
+    'FieldNamePreprocessingMixin',
 
     # Name strategies
     'ExactNameMatch',

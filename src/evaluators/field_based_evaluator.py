@@ -12,10 +12,11 @@ from ..models.evaluation_models import (
     EvaluationTeam
 )
 from ..models.comparison_strategies import ComparisonStrategy, MatchResult
+from ..models.comparison_strategies.mixins import FieldNamePreprocessingMixin
 from ..analysers.field_config_loader import FieldConfigLoader
 
 
-class FieldBasedEvaluator:
+class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     """Evaluates Entity Extraction and Classification tasks using field-based comparison"""
 
     def __init__(self, field_strategies: Dict[str, ComparisonStrategy]):
@@ -177,7 +178,7 @@ class FieldBasedEvaluator:
             dc_evaluation = True if dc_eval_str == 'pass' else (False if dc_eval_str == 'fail' else None)
 
             result = self.evaluate_sample(
-                field_name=str(row.get(field_name_col, '')).strip(),
+                field_name=self.clean_field_name(row.get(field_name_col, '')),
                 model_output=row.get(model_output_col),
                 golden_answer=row.get(golden_answer_col),
                 category=str(row.get(category_col, '')),

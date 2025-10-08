@@ -7,6 +7,7 @@ import inspect
 
 from ..models.comparison_strategies.utils import NumericConverter, DateTimeConverter, is_null_like
 from ..models.comparison_strategies.base import ComparisonStrategy
+from ..models.comparison_strategies.mixins import FieldNamePreprocessingMixin
 import sys
 import importlib
 
@@ -21,7 +22,7 @@ class FieldType:
     UNKNOWN = "unknown"
 
 
-class FieldClassifier:
+class FieldClassifier(FieldNamePreprocessingMixin):
     """
     Classify field types based on field names and values
 
@@ -132,12 +133,8 @@ class FieldClassifier:
         Returns:
             Dictionary with classification results
         """
-        # Clean field name - remove leading/trailing whitespace and newlines
-        if field_name is not None:
-            field_name = str(field_name).strip().replace('\n', ' ').replace('\t', ' ').replace('\r', ' ')
-            # Collapse multiple spaces into one
-            import re
-            field_name = re.sub(r'\s+', ' ', field_name)
+        # Clean field name using mixin method
+        field_name = self.clean_field_name(field_name)
 
         # Filter out null-like values first, before sampling
         non_null_values = [v for v in field_values if not is_null_like(v)]
@@ -409,12 +406,8 @@ class FieldClassifier:
         # Create a copy to avoid modifying original
         df_clean = df.copy()
 
-        # Clean field names - remove leading/trailing whitespace and newlines
-        import re
-        df_clean[field_name_col] = df_clean[field_name_col].apply(
-            lambda x: re.sub(r'\s+', ' ', str(x).strip().replace('\n', ' ').replace('\t', ' ').replace('\r', ' '))
-            if x is not None else x
-        )
+        # Clean field names before grouping using mixin method
+        df_clean[field_name_col] = df_clean[field_name_col].apply(self.clean_field_name)
 
         # Group by cleaned field name and aggregate values
         grouped = df_clean.groupby(field_name_col)[field_value_col].apply(list).reset_index()
