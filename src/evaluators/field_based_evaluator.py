@@ -1,6 +1,6 @@
 """Field-based evaluator for Entity Extraction and Classification tasks"""
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from collections import defaultdict
 
@@ -99,7 +99,7 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
 
         # Apply strategy to get comparison result
         match_result = strategy.compare(model_output, golden_answer)
-        similarity_score = strategy.similarity_score(model_output, golden_answer)
+        similarity_score = strategy.get_similarity_score(model_output, golden_answer)
 
         # DC evaluation is automated based on comparison result
         # - Pass (True) if EXACT_MATCH (includes both null case)
