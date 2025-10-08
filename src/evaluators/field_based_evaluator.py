@@ -228,19 +228,14 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     def calculate_accuracy(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS,
-        task_type_filter: Optional[str] = None
+        team: EvaluationTeam = EvaluationTeam.DC
     ) -> AccuracyMetrics:
         """
         Calculate accuracy metrics from evaluation results
 
         Args:
-            results: List of evaluation results
+            results: List of evaluation results (should be pre-filtered by task type if needed)
             team: Which team's evaluation to use (OPS or DC)
-            task_type_filter: Optional filter for task type
-                - "entity_extraction": Only Entity Extraction tasks
-                - "classification": Only Classification tasks
-                - None: All tasks
 
         Returns:
             AccuracyMetrics object
@@ -248,14 +243,6 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         metrics = AccuracyMetrics()
 
         for result in results:
-            # Apply task type filter
-            if task_type_filter == "entity_extraction":
-                if result.task_type not in [TaskType.ENTITY_EXTRACTION]:
-                    continue
-            elif task_type_filter == "classification":
-                if result.task_type not in [TaskType.CLASSIFICATION, TaskType.CLASSIFICATION_AND_EXTRACTION]:
-                    continue
-
             # Determine if this result is correct based on team evaluation
             if team == EvaluationTeam.OPS:
                 is_correct = result.ops_evaluation
@@ -276,13 +263,13 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     def calculate_accuracy_by_category(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS
+        team: EvaluationTeam = EvaluationTeam.DC
     ) -> Dict[str, AccuracyMetrics]:
         """
         Calculate accuracy metrics per category
 
         Args:
-            results: List of evaluation results
+            results: List of evaluation results (should be pre-filtered by task type if needed)
             team: Which team's evaluation to use
 
         Returns:
@@ -302,29 +289,23 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     def calculate_classification_metrics(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS,
+        team: EvaluationTeam = EvaluationTeam.DC,
         beta: float = 1.0
     ) -> Dict[str, ClassificationMetrics]:
         """
         Calculate classification metrics (precision, recall, F-scores) per class
 
         Args:
-            results: List of evaluation results
+            results: List of evaluation results (should be pre-filtered to classification tasks)
             team: Which team's evaluation to use
             beta: Beta value for F-beta score
 
         Returns:
             Dictionary mapping class_name -> ClassificationMetrics
         """
-        # Filter only classification tasks
-        classification_results = [
-            r for r in results
-            if r.task_type in [TaskType.CLASSIFICATION, TaskType.CLASSIFICATION_AND_EXTRACTION]
-        ]
-
         # Collect all unique class names from golden answers
         class_names = set()
-        for result in classification_results:
+        for result in results:
             if result.golden_answer is not None:
                 class_names.add(str(result.golden_answer))
 
@@ -335,7 +316,7 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
 
         # Calculate TP, FP, FN, TN for each class
         for class_name in class_names:
-            for result in classification_results:
+            for result in results:
                 predicted = str(result.model_output) if result.model_output is not None else None
                 actual = str(result.golden_answer) if result.golden_answer is not None else None
 
@@ -371,14 +352,14 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     def calculate_classification_metrics_by_category(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS,
+        team: EvaluationTeam = EvaluationTeam.DC,
         beta: float = 1.0
     ) -> Dict[str, Dict[str, ClassificationMetrics]]:
         """
         Calculate classification metrics per category
 
         Args:
-            results: List of evaluation results
+            results: List of evaluation results (should be pre-filtered to classification tasks)
             team: Which team's evaluation to use
             beta: Beta value for F-beta score
 
@@ -388,8 +369,7 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         category_results = defaultdict(list)
 
         for result in results:
-            if result.task_type in [TaskType.CLASSIFICATION, TaskType.CLASSIFICATION_AND_EXTRACTION]:
-                category_results[result.category].append(result)
+            category_results[result.category].append(result)
 
         category_metrics = {}
         for category, cat_results in category_results.items():
@@ -423,7 +403,7 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
     def get_metrics_summary(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS
+        team: EvaluationTeam = EvaluationTeam.DC
     ) -> Dict[str, Any]:
         """
         Get comprehensive metrics summary separated by task type
@@ -435,7 +415,7 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         Returns:
             Dictionary with separate metrics for entity extraction and classification
         """
-        # Separate by task type
+        # Filter results by task type once
         entity_extraction_results = [
             r for r in results
             if r.task_type == TaskType.ENTITY_EXTRACTION
@@ -449,19 +429,13 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         summary = {
             "team": team.value,
             "entity_extraction": {
-                "count": len(entity_extraction_results),
-                "accuracy": self.calculate_accuracy(entity_extraction_results, team) if entity_extraction_results else None
+                "accuracy": self.calculate_accuracy(entity_extraction_results, team)
             },
             "classification": {
-                "count": len(classification_results),
-                "accuracy": self.calculate_accuracy(classification_results, team) if classification_results else None,
-                "metrics_per_class": self.calculate_classification_metrics(classification_results, team) if classification_results else {}
+                "accuracy": self.calculate_accuracy(classification_results, team),
+                "metrics_per_class": self.calculate_classification_metrics(classification_results, team)
             },
-            "overall": {
-                "count": len(results),
-                "accuracy": self.calculate_accuracy(results, team),
-                "agreement_rate": self.calculate_agreement_rate(results)
-            }
+            "agreement_rate": self.calculate_agreement_rate(results)
         }
 
         return summary
