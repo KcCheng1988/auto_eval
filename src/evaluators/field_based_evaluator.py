@@ -143,10 +143,13 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         input_text_col: str = 'input text'
     ) -> List[FieldEvaluationResult]:
         """
-        Evaluate entire dataset
+        Evaluate entire dataset (Entity Extraction and Classification tasks only)
 
         DC evaluation is automatically generated based on comparison strategy results.
         Ops evaluation is read from Excel as manual ground truth.
+
+        Note: This evaluator only processes Entity Extraction and Classification tasks.
+        Summarization and Context Rewriting tasks are skipped.
 
         Args:
             df: DataFrame with evaluation data
@@ -165,16 +168,27 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
             List of FieldEvaluationResult objects with automated DC evaluation
         """
         results = []
+        skipped_count = 0
 
         for _, row in df.iterrows():
             # Parse task type
             task_type_str = str(row.get(task_type_col, '')).strip()
+
+            # Determine task type
             if 'Classification' in task_type_str and 'Extraction' in task_type_str:
                 task_type = TaskType.CLASSIFICATION_AND_EXTRACTION
             elif 'Classification' in task_type_str:
                 task_type = TaskType.CLASSIFICATION
             elif 'Entity Extraction' in task_type_str:
                 task_type = TaskType.ENTITY_EXTRACTION
+            elif 'Summarization' in task_type_str:
+                task_type = TaskType.SUMMARIZATION
+                skipped_count += 1
+                continue  # Skip Summarization tasks
+            elif 'Context Rewriting' in task_type_str:
+                task_type = TaskType.CONTEXT_REWRITING
+                skipped_count += 1
+                continue  # Skip Context Rewriting tasks
             else:
                 task_type = TaskType.ENTITY_EXTRACTION  # Default
 
@@ -198,12 +212,16 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
 
             results.append(result)
 
+        if skipped_count > 0:
+            print(f"ℹ️  Skipped {skipped_count} samples (Summarization/Context Rewriting tasks not supported by FieldBasedEvaluator)")
+
         return results
 
     def calculate_accuracy(
         self,
         results: List[FieldEvaluationResult],
-        team: EvaluationTeam = EvaluationTeam.OPS
+        team: EvaluationTeam = EvaluationTeam.OPS,
+        task_type_filter: Optional[str] = None
     ) -> AccuracyMetrics:
         """
         Calculate accuracy metrics from evaluation results
@@ -211,6 +229,10 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         Args:
             results: List of evaluation results
             team: Which team's evaluation to use (OPS or DC)
+            task_type_filter: Optional filter for task type
+                - "entity_extraction": Only Entity Extraction tasks
+                - "classification": Only Classification tasks
+                - None: All tasks
 
         Returns:
             AccuracyMetrics object
@@ -218,6 +240,14 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         metrics = AccuracyMetrics()
 
         for result in results:
+            # Apply task type filter
+            if task_type_filter == "entity_extraction":
+                if result.task_type not in [TaskType.ENTITY_EXTRACTION]:
+                    continue
+            elif task_type_filter == "classification":
+                if result.task_type not in [TaskType.CLASSIFICATION, TaskType.CLASSIFICATION_AND_EXTRACTION]:
+                    continue
+
             # Determine if this result is correct based on team evaluation
             if team == EvaluationTeam.OPS:
                 is_correct = result.ops_evaluation
@@ -381,3 +411,49 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
                     agreements += 1
 
         return agreements / total if total > 0 else 0.0
+
+    def get_metrics_summary(
+        self,
+        results: List[FieldEvaluationResult],
+        team: EvaluationTeam = EvaluationTeam.OPS
+    ) -> Dict[str, Any]:
+        """
+        Get comprehensive metrics summary separated by task type
+
+        Args:
+            results: List of evaluation results
+            team: Which team's evaluation to use
+
+        Returns:
+            Dictionary with separate metrics for entity extraction and classification
+        """
+        # Separate by task type
+        entity_extraction_results = [
+            r for r in results
+            if r.task_type == TaskType.ENTITY_EXTRACTION
+        ]
+
+        classification_results = [
+            r for r in results
+            if r.task_type in [TaskType.CLASSIFICATION, TaskType.CLASSIFICATION_AND_EXTRACTION]
+        ]
+
+        summary = {
+            "team": team.value,
+            "entity_extraction": {
+                "count": len(entity_extraction_results),
+                "accuracy": self.calculate_accuracy(entity_extraction_results, team) if entity_extraction_results else None
+            },
+            "classification": {
+                "count": len(classification_results),
+                "accuracy": self.calculate_accuracy(classification_results, team) if classification_results else None,
+                "metrics_per_class": self.calculate_classification_metrics(classification_results, team) if classification_results else {}
+            },
+            "overall": {
+                "count": len(results),
+                "accuracy": self.calculate_accuracy(results, team),
+                "agreement_rate": self.calculate_agreement_rate(results)
+            }
+        }
+
+        return summary
