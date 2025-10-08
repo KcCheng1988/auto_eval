@@ -33,8 +33,13 @@ class ExactDateTimeStringMatch(StringNormalizationMixin, ComparisonStrategy):
         str1 = self.normalize_string(value1)
         str2 = self.normalize_string(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if str1 is None and str2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if str1 is None or str2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if str1 == str2:
             return MatchResult.EXACT_MATCH
@@ -67,8 +72,13 @@ class ExactDateTimeMatch(ComparisonStrategy):
         dt1 = DateTimeConverter.to_datetime(value1)
         dt2 = DateTimeConverter.to_datetime(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if dt1 is None and dt2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if dt1 is None or dt2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if dt1 == dt2:
             return MatchResult.EXACT_MATCH
@@ -112,8 +122,13 @@ class ToleranceDateTimeMatch(ComparisonStrategy):
         dt1 = DateTimeConverter.to_datetime(value1)
         dt2 = DateTimeConverter.to_datetime(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if dt1 is None and dt2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if dt1 is None or dt2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         # Calculate absolute difference
         diff = abs((dt1 - dt2).total_seconds())
@@ -164,8 +179,13 @@ class DateOnlyMatch(ComparisonStrategy):
         date1 = DateTimeConverter.to_date(value1)
         date2 = DateTimeConverter.to_date(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if date1 is None and date2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if date1 is None or date2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if date1 == date2:
             return MatchResult.EXACT_MATCH
@@ -208,8 +228,13 @@ class TimeOnlyMatch(ComparisonStrategy):
         dt1 = DateTimeConverter.to_datetime(value1)
         dt2 = DateTimeConverter.to_datetime(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if dt1 is None and dt2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if dt1 is None or dt2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         # Extract time components
         time1 = dt1.time()
@@ -302,8 +327,13 @@ class DateTimeRangeMatch(ComparisonStrategy):
         dt1 = DateTimeConverter.to_datetime(value1)
         dt2 = DateTimeConverter.to_datetime(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if dt1 is None and dt2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if dt1 is None or dt2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         bucket1 = self._get_bucket(dt1)
         bucket2 = self._get_bucket(dt2)

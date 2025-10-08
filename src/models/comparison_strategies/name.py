@@ -12,8 +12,13 @@ class ExactNameMatch(StringNormalizationMixin, ComparisonStrategy):
         name1 = self.normalize_string(value1)
         name2 = self.normalize_string(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if name1 is None and name2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if name1 is None or name2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if name1 == name2:
             return MatchResult.EXACT_MATCH
@@ -31,9 +36,14 @@ class InvertedNameMatch(StringNormalizationMixin, ComparisonStrategy):
         name1 = self.normalize_string(value1)
         name2 = self.normalize_string(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if name1 is None and name2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if name1 is None or name2 is None:
-            return MatchResult.MISSING_DATA
-        
+            return MatchResult.NO_MATCH
+
         if name1 == name2:
             return MatchResult.EXACT_MATCH
         

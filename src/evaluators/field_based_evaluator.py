@@ -102,8 +102,16 @@ class FieldBasedEvaluator(FieldNamePreprocessingMixin):
         similarity_score = strategy.similarity_score(model_output, golden_answer)
 
         # DC evaluation is automated based on comparison result
-        # Pass (True) if EXACT_MATCH, Fail (False) otherwise
-        dc_evaluation = (match_result == MatchResult.EXACT_MATCH) if match_result else None
+        # - Pass (True) if EXACT_MATCH (includes both null case)
+        # - Fail (False) if NO_MATCH or PARTIAL_MATCH
+        # - None if no match_result
+        # Note: MISSING_DATA no longer used - both null = EXACT_MATCH, one null = NO_MATCH
+        if match_result == MatchResult.EXACT_MATCH:
+            dc_evaluation = True
+        elif match_result in [MatchResult.NO_MATCH, MatchResult.PARTIAL_MATCH]:
+            dc_evaluation = False
+        else:
+            dc_evaluation = None
 
         # Calculate agreement between Ops (manual) and DC (automated)
         evaluation_agreement = None

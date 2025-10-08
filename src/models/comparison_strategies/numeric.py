@@ -56,8 +56,13 @@ class ExactNumericMatch(ComparisonStrategy):
         num1 = self._normalize_numeric(value1)
         num2 = self._normalize_numeric(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if num1 is None and num2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if num1 is None or num2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if num1 == num2:
             return MatchResult.EXACT_MATCH
@@ -120,8 +125,13 @@ class ToleranceNumericMatch(ComparisonStrategy):
         num1 = self._normalize_numeric(value1)
         num2 = self._normalize_numeric(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if num1 is None and num2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if num1 is None or num2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if num1 == num2:
             return MatchResult.EXACT_MATCH
@@ -148,6 +158,11 @@ class ToleranceNumericMatch(ComparisonStrategy):
         num1 = self._normalize_numeric(value1)
         num2 = self._normalize_numeric(value2)
 
+        # Both null = both correctly empty = perfect match
+        if num1 is None and num2 is None:
+            return 1.0
+
+        # One null, one not = mismatch = no similarity
         if num1 is None or num2 is None:
             return 0.0
 
@@ -223,8 +238,13 @@ class RangeNumericMatch(ComparisonStrategy):
         num1 = self._normalize_numeric(value1)
         num2 = self._normalize_numeric(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if num1 is None and num2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if num1 is None or num2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if num1 == num2:
             return MatchResult.EXACT_MATCH
@@ -241,6 +261,11 @@ class RangeNumericMatch(ComparisonStrategy):
         num1 = self._normalize_numeric(value1)
         num2 = self._normalize_numeric(value2)
 
+        # Both null = both correctly empty = perfect match
+        if num1 is None and num2 is None:
+            return 1.0
+
+        # One null, one not = mismatch = no similarity
         if num1 is None or num2 is None:
             return 0.0
 

@@ -30,8 +30,13 @@ class ExactStringMatch(StringNormalizationMixin, ComparisonStrategy):
         str1 = self.normalize_string(value1)
         str2 = self.normalize_string(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if str1 is None and str2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if str1 is None or str2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if str1 == str2:
             return MatchResult.EXACT_MATCH
@@ -63,8 +68,13 @@ class ContainsStringMatch(StringNormalizationMixin, ComparisonStrategy):
         str1 = self.normalize_string(value1)
         str2 = self.normalize_string(value2)
 
+        # Both null = both correctly empty = EXACT_MATCH
+        if str1 is None and str2 is None:
+            return MatchResult.EXACT_MATCH
+
+        # One null, one not = mismatch = NO_MATCH
         if str1 is None or str2 is None:
-            return MatchResult.MISSING_DATA
+            return MatchResult.NO_MATCH
 
         if str1 == str2:
             return MatchResult.EXACT_MATCH
