@@ -1,0 +1,17 @@
+# Requirements for SQLite + S3 Hybrid Architecture
+# Install with: pip install -r requirements_hybrid.txt
+
+# Core dependencies (existing)
+pandas>=1.5.0
+pyyaml>=6.0
+openpyxl>=3.0.0  # For Excel file support
+
+# S3 Storage
+boto3>=1.28.0  # AWS SDK for S3
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Optional but recommended
+# tabulate>=0.9.0  # For pretty printing tables
+# tqdm>=4.65.0  # For progress bars on large uploads
