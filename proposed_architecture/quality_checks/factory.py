@@ -6,6 +6,13 @@ from .date_checks import DateFormatQualityCheck
 from .numeric_checks import NumericFormatQualityCheck
 from .string_checks import StringQualityCheck, EmailQualityCheck
 from .consistency_checks import CrossFieldConsistencyCheck, DuplicateCheck
+from .dataset_checks import (
+    ScenarioSampleSizeCheck,
+    DocumentSampleSizeCheck,
+    DatasetSizeCheck,
+    DataCompletenessCheck,
+    BalancedDistributionCheck
+)
 
 
 class QualityCheckFactory:
@@ -17,6 +24,7 @@ class QualityCheckFactory:
 
     # Map field types to strategy classes
     STRATEGY_MAP: Dict[str, Type[QualityCheckStrategy]] = {
+        # Field-level checks
         'date': DateFormatQualityCheck,
         'datetime': DateFormatQualityCheck,
         'numeric': NumericFormatQualityCheck,
@@ -27,6 +35,12 @@ class QualityCheckFactory:
         'email': EmailQualityCheck,
         'consistency': CrossFieldConsistencyCheck,
         'duplicate': DuplicateCheck,
+        # Dataset-level checks (non-field-specific)
+        'scenario_sample_size': ScenarioSampleSizeCheck,
+        'document_sample_size': DocumentSampleSizeCheck,
+        'dataset_size': DatasetSizeCheck,
+        'data_completeness': DataCompletenessCheck,
+        'balanced_distribution': BalancedDistributionCheck,
     }
 
     @classmethod

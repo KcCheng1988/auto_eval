@@ -28,7 +28,10 @@ proposed_architecture/
 │   ├── numeric_checks.py # Numeric validation
 │   ├── string_checks.py # String validation
 │   ├── consistency_checks.py # Cross-field checks
-│   └── factory.py      # Strategy factory
+│   ├── dataset_checks.py # Dataset-level checks (sample size, etc.)
+│   ├── factory.py      # Strategy factory
+│   ├── DATASET_CHECKS_GUIDE.md # Documentation for dataset checks
+│   └── example_config_with_dataset_checks.json # Example configuration
 ├── services/           # Business logic services
 │   ├── quality_check.py # Quality check orchestration
 │   ├── evaluation.py   # Evaluation orchestration

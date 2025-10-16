@@ -1,0 +1,172 @@
+{
+    "use_case_name": "Invoice Entity Extraction with Demographics",
+    "description": "Example configuration showing both field-level and dataset-level quality checks",
+
+    "fields": {
+        "document_id": {
+            "type": "string",
+            "strategy": "ExactStringMatch",
+            "description": "Unique identifier for each document",
+            "validation_rules": {
+                "max_length": 50,
+                "pattern": "^INV_[0-9]+$",
+                "allow_null": false
+            }
+        },
+        "invoice_date": {
+            "type": "date",
+            "strategy": "ExactDateTimeMatch",
+            "description": "Date on the invoice",
+            "preprocessing": {
+                "strip_whitespace": true,
+                "normalize_format": true
+            },
+            "validation_rules": {
+                "date_format": "%Y-%m-%d",
+                "min_date": "2020-01-01",
+                "max_date": "2024-12-31",
+                "allow_null": false
+            }
+        },
+        "vendor_name": {
+            "type": "string",
+            "strategy": "FuzzyStringMatch",
+            "description": "Name of the vendor on the invoice",
+            "validation_rules": {
+                "min_length": 2,
+                "max_length": 200,
+                "allow_null": false
+            }
+        },
+        "total_amount": {
+            "type": "numeric",
+            "strategy": "NumericMatch",
+            "description": "Total invoice amount",
+            "validation_rules": {
+                "min_value": 0,
+                "max_value": 1000000,
+                "decimal_places": 2,
+                "allow_null": false
+            }
+        },
+        "invoice_number": {
+            "type": "string",
+            "strategy": "ExactStringMatch",
+            "description": "Invoice number from the document",
+            "validation_rules": {
+                "max_length": 50,
+                "allow_null": false
+            }
+        },
+        "document_type": {
+            "type": "string",
+            "strategy": "ExactStringMatch",
+            "description": "Type of document",
+            "validation_rules": {
+                "allowed_values": ["invoice", "receipt", "purchase_order"],
+                "allow_null": false
+            }
+        },
+        "customer_gender": {
+            "type": "string",
+            "strategy": "ExactStringMatch",
+            "description": "Gender of the customer (for demographic analysis)",
+            "validation_rules": {
+                "allowed_values": ["male", "female", "non-binary", "prefer_not_to_say"],
+                "allow_null": true
+            }
+        },
+        "golden_answer": {
+            "type": "string",
+            "strategy": "ExactStringMatch",
+            "description": "Expected correct extraction result",
+            "validation_rules": {
+                "allow_null": false
+            }
+        }
+    },
+
+    "dataset_checks": [
+        {
+            "name": "Overall Dataset Size",
+            "type": "dataset_size",
+            "config": {
+                "min_total_samples": 200,
+                "max_total_samples": 10000,
+                "severity": "error"
+            },
+            "rationale": "Need at least 200 samples for statistical significance. More than 10k may cause performance issues."
+        },
+        {
+            "name": "Document Diversity",
+            "type": "document_sample_size",
+            "config": {
+                "document_id_field": "document_id",
+                "min_documents": 30,
+                "severity": "error",
+                "check_fields_per_document": true,
+                "max_fields_per_document": 15
+            },
+            "rationale": "Entity extraction requires diverse documents. Max 15 fields per document to avoid over-representation."
+        },
+        {
+            "name": "Document Type Coverage",
+            "type": "scenario_sample_size",
+            "config": {
+                "scenario_field": "document_type",
+                "min_samples": 25,
+                "severity": "warning",
+                "expected_scenarios": ["invoice", "receipt", "purchase_order"]
+            },
+            "rationale": "Need at least 25 samples per document type for fair comparison."
+        },
+        {
+            "name": "Gender Distribution",
+            "type": "scenario_sample_size",
+            "config": {
+                "scenario_field": "customer_gender",
+                "min_samples": 40,
+                "severity": "warning",
+                "scenario_specific_minimums": {
+                    "non-binary": 10,
+                    "prefer_not_to_say": 5
+                },
+                "expected_scenarios": ["male", "female", "non-binary", "prefer_not_to_say"]
+            },
+            "rationale": "Check for gender bias. Lower thresholds for underrepresented groups."
+        },
+        {
+            "name": "Classification Balance",
+            "type": "balanced_distribution",
+            "config": {
+                "category_field": "golden_answer",
+                "max_imbalance_ratio": 3.0,
+                "severity": "info"
+            },
+            "rationale": "Check if golden answers are balanced. Up to 3:1 ratio is acceptable for real-world data."
+        },
+        {
+            "name": "Data Completeness",
+            "type": "data_completeness",
+            "config": {
+                "max_missing_percentage": 5.0,
+                "critical_fields": [
+                    "document_id",
+                    "golden_answer",
+                    "invoice_date",
+                    "total_amount"
+                ],
+                "severity": "warning"
+            },
+            "rationale": "Less than 5% missing data overall. Critical fields must be complete."
+        }
+    ],
+
+    "metadata": {
+        "version": "1.0",
+        "created_by": "ML Team",
+        "created_date": "2024-01-15",
+        "last_updated": "2024-01-20",
+        "notes": "Configuration includes comprehensive dataset-level checks for sample size and data quality."
+    }
+}

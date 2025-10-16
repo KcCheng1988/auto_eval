@@ -18,10 +18,11 @@ class QualityCheckService:
         self,
         use_case_id: str,
         dataset_df: pd.DataFrame,
-        field_config: Dict[str, Dict[str, Any]]
+        field_config: Dict[str, Dict[str, Any]],
+        dataset_config: Dict[str, Any] = None
     ) -> List[QualityIssue]:
         """
-        Run quality checks on dataset based on field configuration
+        Run quality checks on dataset based on field and dataset configuration
 
         Args:
             use_case_id: Use case identifier
@@ -35,12 +36,32 @@ class QualityCheckService:
                         'validation_rules': {...}  # Quality check config
                     }
                 }
+            dataset_config: Dataset-level quality check configuration (optional)
+                {
+                    'dataset_checks': [
+                        {
+                            'type': 'scenario_sample_size',
+                            'config': {
+                                'scenario_field': 'gender',
+                                'min_samples': 50
+                            }
+                        },
+                        {
+                            'type': 'document_sample_size',
+                            'config': {
+                                'document_id_field': 'doc_id',
+                                'min_documents': 20
+                            }
+                        }
+                    ]
+                }
 
         Returns:
             List of quality issues found
         """
         all_issues = []
 
+        # Run field-level checks
         for field_name, config in field_config.items():
             if field_name not in dataset_df.columns:
                 all_issues.append(QualityIssue(
@@ -69,6 +90,27 @@ class QualityCheckService:
                     message=f"Error running quality check: {str(e)}",
                     severity=IssueSeverity.ERROR
                 ))
+
+        # Run dataset-level checks
+        if dataset_config:
+            dataset_checks = dataset_config.get('dataset_checks', [])
+            for check_spec in dataset_checks:
+                check_type = check_spec.get('type')
+                check_config = check_spec.get('config', {})
+
+                try:
+                    checker = QualityCheckFactory.get_checker(check_type, **check_config)
+                    issues = checker.check(dataset_df)
+                    all_issues.extend(issues)
+                except Exception as e:
+                    all_issues.append(QualityIssue(
+                        row_number=0,
+                        field_name="dataset",
+                        value=None,
+                        issue_type="check_error",
+                        message=f"Error running dataset check '{check_type}': {str(e)}",
+                        severity=IssueSeverity.ERROR
+                    ))
 
         return all_issues
 
