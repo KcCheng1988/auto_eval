@@ -85,38 +85,45 @@ CREATE TABLE IF NOT EXISTS use_case_state_history (
 -- ============================================================================
 
 -- Models table (ML model configurations - reusable across use cases)
+-- Uses composite primary key (model_id, version) for versioning
 CREATE TABLE IF NOT EXISTS models (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,  -- e.g., 'GPT-4', 'Claude-3-Sonnet', 'Llama-3-70B'
-    model_type TEXT NOT NULL,  -- e.g., 'azure_openai', 'bedrock', 'local'
-    version TEXT,  -- Model version: 'gpt-4-0613', 'claude-3-sonnet-20240229'
-    provider TEXT,  -- 'openai', 'anthropic', 'meta', etc.
-    config TEXT NOT NULL,  -- JSON: endpoint, api_key_ref, region, parameters, etc.
+    model_id TEXT NOT NULL,  -- Logical model ID: 'gpt-4', 'claude-3-sonnet'
+    version TEXT NOT NULL,   -- Version: 'v1.0', 'v2.0', '2024-04-09', etc.
+    name TEXT NOT NULL,      -- Display name: 'GPT-4 Turbo', 'Claude-3-Sonnet'
+    model_type TEXT NOT NULL,  -- 'azure_openai', 'bedrock', 'local'
+    provider TEXT,           -- 'openai', 'anthropic', 'meta', etc.
+    config TEXT NOT NULL,    -- JSON: endpoint, api_key_ref, region, parameters, etc.
     is_active INTEGER DEFAULT 1,
+    is_latest INTEGER DEFAULT 0,  -- Flag for latest version of this model_id
     description TEXT,
+    changelog TEXT,          -- What changed in this version
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
+    updated_at TEXT DEFAULT (datetime('now')),
+
+    PRIMARY KEY (model_id, version),
+    UNIQUE(name, version)  -- Ensure unique display name per version
 );
 
 -- ============================================================================
 -- Model Evaluation Tables (Two-level state management)
 -- ============================================================================
 
--- Model evaluations table - Links a model to a use case for evaluation
+-- Model evaluations table - Links a model version to a use case for evaluation
 CREATE TABLE IF NOT EXISTS model_evaluations (
     id TEXT PRIMARY KEY,
     use_case_id TEXT NOT NULL,
-    model_id TEXT NOT NULL,  -- Links to models table
-    current_state TEXT NOT NULL,  -- ModelEvaluationState enum
-    dataset_file_path TEXT,  -- Dataset specific to this evaluation
+    model_id TEXT NOT NULL,     -- Logical model ID (part of composite FK)
+    model_version TEXT NOT NULL, -- Model version (part of composite FK)
+    current_state TEXT NOT NULL, -- ModelEvaluationState enum
+    dataset_file_path TEXT,      -- Dataset specific to this evaluation
     predictions_file_path TEXT,  -- Model predictions file
-    quality_issues TEXT,  -- JSON array of quality issues
+    quality_issues TEXT,         -- JSON array of quality issues
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     metadata TEXT DEFAULT '{}',  -- JSON for additional info
     FOREIGN KEY (use_case_id) REFERENCES use_cases(id) ON DELETE CASCADE,
-    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE RESTRICT,
-    UNIQUE(use_case_id, model_id)  -- One evaluation per model per use case
+    FOREIGN KEY (model_id, model_version) REFERENCES models(model_id, version) ON DELETE RESTRICT,
+    UNIQUE(use_case_id, model_id, model_version)  -- One evaluation per model version per use case
 );
 
 -- Model state history table - Track all state transitions for each model
@@ -269,14 +276,17 @@ CREATE INDEX IF NOT EXISTS idx_use_case_state_history_use_case ON use_case_state
 CREATE INDEX IF NOT EXISTS idx_use_case_state_history_timestamp ON use_case_state_history(timestamp);
 
 -- Model configuration indexes
+CREATE INDEX IF NOT EXISTS idx_models_model_id ON models(model_id);
 CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
 CREATE INDEX IF NOT EXISTS idx_models_type ON models(model_type);
 CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider);
 CREATE INDEX IF NOT EXISTS idx_models_active ON models(is_active);
+CREATE INDEX IF NOT EXISTS idx_models_latest ON models(model_id, is_latest);
 
 -- Model evaluation indexes
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_use_case ON model_evaluations(use_case_id);
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_model ON model_evaluations(model_id);
+CREATE INDEX IF NOT EXISTS idx_model_evaluations_model_version ON model_evaluations(model_id, model_version);
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_state ON model_evaluations(current_state);
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_use_case_model ON model_evaluations(use_case_id, model_id);
 
@@ -328,7 +338,8 @@ END;
 CREATE TRIGGER IF NOT EXISTS update_models_timestamp
 AFTER UPDATE ON models
 BEGIN
-    UPDATE models SET updated_at = datetime('now') WHERE id = NEW.id;
+    UPDATE models SET updated_at = datetime('now')
+    WHERE model_id = NEW.model_id AND version = NEW.version;
 END;
 
 CREATE TRIGGER IF NOT EXISTS update_model_evaluations_timestamp
@@ -337,21 +348,45 @@ BEGIN
     UPDATE model_evaluations SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
 
+-- Trigger to automatically set is_latest flag for models
+-- When a new version is inserted, unset is_latest for all older versions
+CREATE TRIGGER IF NOT EXISTS update_model_latest_flag
+AFTER INSERT ON models
+WHEN NEW.is_latest = 1
+BEGIN
+    -- Unset is_latest for all other versions of this model_id
+    UPDATE models
+    SET is_latest = 0
+    WHERE model_id = NEW.model_id
+      AND version != NEW.version;
+END;
+
 -- ============================================================================
 -- Default Data (Optional)
 -- ============================================================================
 
--- Insert default models (optional)
-INSERT OR IGNORE INTO models (id, name, model_type, version, provider, config, is_active, description) VALUES
-    ('model-gpt4-turbo', 'GPT-4-Turbo', 'azure_openai', 'gpt-4-turbo-2024-04-09', 'openai',
+-- Insert default models with versioning (optional)
+INSERT OR IGNORE INTO models (model_id, version, name, model_type, provider, config, is_active, is_latest, description, changelog) VALUES
+    -- GPT-4 Turbo versions
+    ('gpt-4-turbo', 'v1.0', 'GPT-4-Turbo v1.0', 'azure_openai', 'openai',
      '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-4-turbo", "api_version": "2024-02-01"}',
-     1, 'GPT-4 Turbo with vision capabilities'),
-    ('model-claude-3-sonnet', 'Claude-3-Sonnet', 'bedrock', 'claude-3-sonnet-20240229', 'anthropic',
+     1, 0, 'GPT-4 Turbo with vision capabilities', 'Initial version'),
+    ('gpt-4-turbo', 'v2.0', 'GPT-4-Turbo v2.0', 'azure_openai', 'openai',
+     '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-4-turbo", "api_version": "2024-04-01", "temperature": 0.7}',
+     1, 1, 'GPT-4 Turbo with improved parameters', 'Updated temperature, newer API version'),
+
+    -- Claude 3 Sonnet versions
+    ('claude-3-sonnet', 'v1.0', 'Claude-3-Sonnet v1.0', 'bedrock', 'anthropic',
      '{"model_id": "anthropic.claude-3-sonnet-20240229-v1:0", "region": "us-east-1"}',
-     1, 'Claude 3 Sonnet - balanced performance'),
-    ('model-gpt-3.5', 'GPT-3.5-Turbo', 'azure_openai', 'gpt-3.5-turbo-0125', 'openai',
+     1, 1, 'Claude 3 Sonnet - balanced performance', 'Initial version'),
+
+    -- GPT-3.5 Turbo versions
+    ('gpt-3.5-turbo', 'v1.0', 'GPT-3.5-Turbo v1.0', 'azure_openai', 'openai',
      '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-35-turbo"}',
-     1, 'Fast and cost-effective model');
+     1, 0, 'Fast and cost-effective model', 'Initial version'),
+    ('gpt-3.5-turbo', 'v1.1', 'GPT-3.5-Turbo v1.1', 'azure_openai', 'openai',
+     '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-35-turbo", "max_tokens": 4096}',
+     1, 1, 'Fast and cost-effective model', 'Increased max_tokens to 4096');
 
 -- Insert default stakeholder for demo/testing
 INSERT OR IGNORE INTO stakeholders (id, email, name, role, notification_enabled) VALUES
@@ -433,16 +468,17 @@ SELECT
     u.id as use_case_id,
     u.name as use_case_name,
     u.state as use_case_state,
-    m.id as model_id,
+    me.model_id,
+    me.model_version,
     m.name as model_name,
-    m.version as model_version,
     m.model_type,
     m.provider,
+    m.is_latest,
     s.email as primary_contact_email,
     s.name as primary_contact_name
 FROM model_evaluations me
 JOIN use_cases u ON me.use_case_id = u.id
-JOIN models m ON me.model_id = m.id
+JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
 LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
 LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id;
 
@@ -454,11 +490,12 @@ SELECT
     msh.triggered_by,
     msh.timestamp,
     me.use_case_id,
-    m.name as model_name,
-    m.version as model_version
+    me.model_id,
+    me.model_version,
+    m.name as model_name
 FROM model_state_history msh
 JOIN model_evaluations me ON msh.model_id = me.id
-JOIN models m ON me.model_id = m.id
+JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
 WHERE msh.id IN (
     SELECT id
     FROM model_state_history
@@ -471,8 +508,9 @@ WHERE msh.id IN (
 CREATE VIEW IF NOT EXISTS v_models_needing_action AS
 SELECT
     me.id as evaluation_id,
+    me.model_id,
+    me.model_version,
     m.name as model_name,
-    m.version as model_version,
     me.current_state,
     u.name as use_case_name,
     s.email as primary_contact_email,
@@ -480,7 +518,7 @@ SELECT
     me.updated_at
 FROM model_evaluations me
 JOIN use_cases u ON me.use_case_id = u.id
-JOIN models m ON me.model_id = m.id
+JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
 LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
 LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id
 WHERE me.current_state IN (
@@ -503,13 +541,44 @@ SELECT
     er.duration_seconds,
     me.id as evaluation_id,
     me.current_state as evaluation_state,
+    me.model_id,
+    me.model_version,
     u.id as use_case_id,
     u.name as use_case_name,
-    m.id as model_id,
     m.name as model_name,
-    m.version as model_version,
-    m.provider
+    m.provider,
+    m.is_latest
 FROM evaluation_results er
 JOIN model_evaluations me ON er.model_evaluation_id = me.id
 JOIN use_cases u ON me.use_case_id = u.id
-JOIN models m ON me.model_id = m.id;
+JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version;
+
+-- View: Latest version of each model
+CREATE VIEW IF NOT EXISTS v_latest_models AS
+SELECT
+    model_id,
+    version,
+    name,
+    model_type,
+    provider,
+    config,
+    description,
+    created_at,
+    updated_at
+FROM models
+WHERE is_latest = 1;
+
+-- View: Model version history
+CREATE VIEW IF NOT EXISTS v_model_version_history AS
+SELECT
+    model_id,
+    version,
+    name,
+    model_type,
+    provider,
+    is_latest,
+    is_active,
+    changelog,
+    created_at
+FROM models
+ORDER BY model_id, created_at DESC;
