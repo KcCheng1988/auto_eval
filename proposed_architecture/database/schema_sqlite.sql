@@ -81,25 +81,42 @@ CREATE TABLE IF NOT EXISTS use_case_state_history (
 );
 
 -- ============================================================================
--- Model Evaluation Tables (NEW - Two-level state management)
+-- Model Configuration Table
 -- ============================================================================
 
--- Model evaluations table - Each model has independent state
+-- Models table (ML model configurations - reusable across use cases)
+CREATE TABLE IF NOT EXISTS models (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,  -- e.g., 'GPT-4', 'Claude-3-Sonnet', 'Llama-3-70B'
+    model_type TEXT NOT NULL,  -- e.g., 'azure_openai', 'bedrock', 'local'
+    version TEXT,  -- Model version: 'gpt-4-0613', 'claude-3-sonnet-20240229'
+    provider TEXT,  -- 'openai', 'anthropic', 'meta', etc.
+    config TEXT NOT NULL,  -- JSON: endpoint, api_key_ref, region, parameters, etc.
+    is_active INTEGER DEFAULT 1,
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ============================================================================
+-- Model Evaluation Tables (Two-level state management)
+-- ============================================================================
+
+-- Model evaluations table - Links a model to a use case for evaluation
 CREATE TABLE IF NOT EXISTS model_evaluations (
     id TEXT PRIMARY KEY,
     use_case_id TEXT NOT NULL,
-    model_name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    current_state TEXT NOT NULL,  -- ModelEvaluationState enum (registered, quality_check_pending, etc.)
-    dataset_file_path TEXT,  -- Dataset specific to this model
+    model_id TEXT NOT NULL,  -- Links to models table
+    current_state TEXT NOT NULL,  -- ModelEvaluationState enum
+    dataset_file_path TEXT,  -- Dataset specific to this evaluation
     predictions_file_path TEXT,  -- Model predictions file
     quality_issues TEXT,  -- JSON array of quality issues
-    evaluation_results TEXT,  -- JSON of evaluation metrics
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     metadata TEXT DEFAULT '{}',  -- JSON for additional info
     FOREIGN KEY (use_case_id) REFERENCES use_cases(id) ON DELETE CASCADE,
-    UNIQUE(use_case_id, model_name, version)  -- One version per model per use case
+    FOREIGN KEY (model_id) REFERENCES models(id) ON DELETE RESTRICT,
+    UNIQUE(use_case_id, model_id)  -- One evaluation per model per use case
 );
 
 -- Model state history table - Track all state transitions for each model
@@ -130,35 +147,38 @@ CREATE TABLE IF NOT EXISTS quality_check_results (
 );
 
 -- ============================================================================
--- Shared Reference Tables
+-- Evaluation Results Table
 -- ============================================================================
 
--- Models table (ML model configurations - shared across use cases)
-CREATE TABLE IF NOT EXISTS models (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    model_type TEXT NOT NULL,  -- e.g., 'azure_openai', 'bedrock'
-    config TEXT NOT NULL,  -- JSON: endpoint, version, etc.
-    is_active INTEGER DEFAULT 1,  -- SQLite uses INTEGER for boolean
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-
--- Evaluation results table (deprecated - moved to model_evaluations.evaluation_results)
--- Kept for backward compatibility
+-- Evaluation results table - Stores actual evaluation metrics and results
 CREATE TABLE IF NOT EXISTS evaluation_results (
     id TEXT PRIMARY KEY,
-    use_case_id TEXT NOT NULL,
-    model_id TEXT NOT NULL,
-    result_file_path TEXT,  -- S3 key for detailed results
-    summary TEXT,  -- JSON: accuracy, precision, recall, etc.
-    status TEXT NOT NULL,  -- 'running', 'completed', 'failed'
-    error_message TEXT,
+    model_evaluation_id TEXT NOT NULL,  -- Links to model_evaluations (NOT models!)
+    status TEXT NOT NULL,  -- 'queued', 'running', 'completed', 'failed'
+    result_file_path TEXT,  -- S3 key or local path for detailed results
+
+    -- Metrics (JSON or individual columns - using JSON for flexibility)
+    metrics TEXT,  -- JSON: {"accuracy": 0.95, "precision": 0.92, "recall": 0.89, "f1": 0.90}
+
+    -- Additional evaluation data
+    predictions_count INTEGER,  -- Number of predictions evaluated
+    correct_predictions INTEGER,  -- Number of correct predictions
+
+    -- Timing
     started_at TEXT,
     completed_at TEXT,
+    duration_seconds INTEGER,  -- Calculated: completed_at - started_at
+
+    -- Error handling
+    error_message TEXT,
+    error_traceback TEXT,
+
+    -- Metadata
+    evaluator_version TEXT,  -- Version of evaluation code used
+    metadata TEXT DEFAULT '{}',  -- JSON for custom metrics or info
     created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (use_case_id) REFERENCES use_cases(id) ON DELETE CASCADE,
-    FOREIGN KEY (model_id) REFERENCES models(id)
+
+    FOREIGN KEY (model_evaluation_id) REFERENCES model_evaluations(id) ON DELETE CASCADE
 );
 
 -- Activity log table
@@ -248,10 +268,17 @@ CREATE INDEX IF NOT EXISTS idx_use_cases_created_at ON use_cases(created_at);
 CREATE INDEX IF NOT EXISTS idx_use_case_state_history_use_case ON use_case_state_history(use_case_id);
 CREATE INDEX IF NOT EXISTS idx_use_case_state_history_timestamp ON use_case_state_history(timestamp);
 
+-- Model configuration indexes
+CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
+CREATE INDEX IF NOT EXISTS idx_models_type ON models(model_type);
+CREATE INDEX IF NOT EXISTS idx_models_provider ON models(provider);
+CREATE INDEX IF NOT EXISTS idx_models_active ON models(is_active);
+
 -- Model evaluation indexes
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_use_case ON model_evaluations(use_case_id);
+CREATE INDEX IF NOT EXISTS idx_model_evaluations_model ON model_evaluations(model_id);
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_state ON model_evaluations(current_state);
-CREATE INDEX IF NOT EXISTS idx_model_evaluations_name ON model_evaluations(model_name);
+CREATE INDEX IF NOT EXISTS idx_model_evaluations_use_case_model ON model_evaluations(use_case_id, model_id);
 
 -- Model state history indexes
 CREATE INDEX IF NOT EXISTS idx_model_state_history_model ON model_state_history(model_id);
@@ -263,8 +290,9 @@ CREATE INDEX IF NOT EXISTS idx_quality_check_model ON quality_check_results(mode
 CREATE INDEX IF NOT EXISTS idx_quality_check_passed ON quality_check_results(passed);
 
 -- Evaluation results indexes
-CREATE INDEX IF NOT EXISTS idx_evaluation_results_use_case ON evaluation_results(use_case_id);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_model_eval ON evaluation_results(model_evaluation_id);
 CREATE INDEX IF NOT EXISTS idx_evaluation_results_status ON evaluation_results(status);
+CREATE INDEX IF NOT EXISTS idx_evaluation_results_created ON evaluation_results(created_at);
 
 -- Activity log indexes
 CREATE INDEX IF NOT EXISTS idx_activity_log_use_case ON activity_log(use_case_id);
@@ -314,9 +342,16 @@ END;
 -- ============================================================================
 
 -- Insert default models (optional)
-INSERT OR IGNORE INTO models (id, name, model_type, config, is_active) VALUES
-    ('default-gpt4', 'GPT-4', 'azure_openai', '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-4"}', 1),
-    ('default-claude', 'Claude-3', 'bedrock', '{"model_id": "anthropic.claude-3-sonnet-20240229-v1:0", "region": "us-east-1"}', 1);
+INSERT OR IGNORE INTO models (id, name, model_type, version, provider, config, is_active, description) VALUES
+    ('model-gpt4-turbo', 'GPT-4-Turbo', 'azure_openai', 'gpt-4-turbo-2024-04-09', 'openai',
+     '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-4-turbo", "api_version": "2024-02-01"}',
+     1, 'GPT-4 Turbo with vision capabilities'),
+    ('model-claude-3-sonnet', 'Claude-3-Sonnet', 'bedrock', 'claude-3-sonnet-20240229', 'anthropic',
+     '{"model_id": "anthropic.claude-3-sonnet-20240229-v1:0", "region": "us-east-1"}',
+     1, 'Claude 3 Sonnet - balanced performance'),
+    ('model-gpt-3.5', 'GPT-3.5-Turbo', 'azure_openai', 'gpt-3.5-turbo-0125', 'openai',
+     '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-35-turbo"}',
+     1, 'Fast and cost-effective model');
 
 -- Insert default stakeholder for demo/testing
 INSERT OR IGNORE INTO stakeholders (id, email, name, role, notification_enabled) VALUES
@@ -388,36 +423,42 @@ JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id
 JOIN stakeholders s ON ucs.stakeholder_id = s.id
 ORDER BY u.name, ucs.is_primary_contact DESC, s.name;
 
--- View: Model evaluations with use case info and primary contact
+-- View: Model evaluations with use case, model config, and primary contact
 CREATE VIEW IF NOT EXISTS v_model_evaluations AS
 SELECT
-    m.id,
-    m.model_name,
-    m.version,
-    m.current_state,
-    m.created_at,
-    m.updated_at,
+    me.id as evaluation_id,
+    me.current_state,
+    me.created_at,
+    me.updated_at,
     u.id as use_case_id,
     u.name as use_case_name,
     u.state as use_case_state,
+    m.id as model_id,
+    m.name as model_name,
+    m.version as model_version,
+    m.model_type,
+    m.provider,
     s.email as primary_contact_email,
     s.name as primary_contact_name
-FROM model_evaluations m
-JOIN use_cases u ON m.use_case_id = u.id
+FROM model_evaluations me
+JOIN use_cases u ON me.use_case_id = u.id
+JOIN models m ON me.model_id = m.id
 LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
 LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id;
 
--- View: Latest state transitions per model
+-- View: Latest state transitions per model evaluation
 CREATE VIEW IF NOT EXISTS v_latest_model_states AS
 SELECT
-    msh.model_id,
+    msh.model_id as evaluation_id,
     msh.to_state as current_state,
     msh.triggered_by,
     msh.timestamp,
-    m.model_name,
-    m.version
+    me.use_case_id,
+    m.name as model_name,
+    m.version as model_version
 FROM model_state_history msh
-JOIN model_evaluations m ON msh.model_id = m.id
+JOIN model_evaluations me ON msh.model_id = me.id
+JOIN models m ON me.model_id = m.id
 WHERE msh.id IN (
     SELECT id
     FROM model_state_history
@@ -429,21 +470,46 @@ WHERE msh.id IN (
 -- View: Models needing action (blocked states) with primary contact
 CREATE VIEW IF NOT EXISTS v_models_needing_action AS
 SELECT
-    m.id,
-    m.model_name,
-    m.version,
-    m.current_state,
+    me.id as evaluation_id,
+    m.name as model_name,
+    m.version as model_version,
+    me.current_state,
     u.name as use_case_name,
     s.email as primary_contact_email,
     s.name as primary_contact_name,
-    m.updated_at
-FROM model_evaluations m
-JOIN use_cases u ON m.use_case_id = u.id
+    me.updated_at
+FROM model_evaluations me
+JOIN use_cases u ON me.use_case_id = u.id
+JOIN models m ON me.model_id = m.id
 LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
 LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id
-WHERE m.current_state IN (
+WHERE me.current_state IN (
     'awaiting_data_fix',
     'quality_check_failed',
     'evaluation_failed'
 )
-ORDER BY m.updated_at DESC;
+ORDER BY me.updated_at DESC;
+
+-- View: Evaluation results with model and use case info
+CREATE VIEW IF NOT EXISTS v_evaluation_results AS
+SELECT
+    er.id as result_id,
+    er.status as eval_status,
+    er.metrics,
+    er.predictions_count,
+    er.correct_predictions,
+    er.started_at,
+    er.completed_at,
+    er.duration_seconds,
+    me.id as evaluation_id,
+    me.current_state as evaluation_state,
+    u.id as use_case_id,
+    u.name as use_case_name,
+    m.id as model_id,
+    m.name as model_name,
+    m.version as model_version,
+    m.provider
+FROM evaluation_results er
+JOIN model_evaluations me ON er.model_evaluation_id = me.id
+JOIN use_cases u ON me.use_case_id = u.id
+JOIN models m ON me.model_id = m.id;
