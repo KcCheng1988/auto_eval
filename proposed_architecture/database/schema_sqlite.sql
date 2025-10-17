@@ -3,6 +3,22 @@
 -- Updated to support two-level state management: Use Case + Model
 
 -- ============================================================================
+-- Stakeholder Management Tables
+-- ============================================================================
+
+-- Stakeholders table - Reusable across use cases
+CREATE TABLE IF NOT EXISTS stakeholders (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    role TEXT,  -- General role: 'data_scientist', 'ml_engineer', 'reviewer'
+    department TEXT,
+    notification_enabled INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- ============================================================================
 -- Use Case Tables
 -- ============================================================================
 
@@ -10,13 +26,44 @@
 CREATE TABLE IF NOT EXISTS use_cases (
     id TEXT PRIMARY KEY,  -- UUID stored as TEXT
     name TEXT NOT NULL,
-    team_email TEXT NOT NULL,
     state TEXT NOT NULL,  -- UseCaseState enum (template_generation, awaiting_config, etc.)
     config_file_path TEXT,  -- Local path or S3 key
     dataset_file_path TEXT,  -- Local path or S3 key (deprecated - moved to model level)
     metadata TEXT DEFAULT '{}',  -- JSON stored as TEXT
     created_at TEXT DEFAULT (datetime('now')),  -- ISO8601 timestamp
     updated_at TEXT DEFAULT (datetime('now'))
+    -- Note: team_email removed - use use_case_stakeholders table instead
+);
+
+-- Use case stakeholders junction table (many-to-many)
+CREATE TABLE IF NOT EXISTS use_case_stakeholders (
+    id TEXT PRIMARY KEY,
+    use_case_id TEXT NOT NULL,
+    stakeholder_id TEXT NOT NULL,
+    role_in_use_case TEXT NOT NULL,  -- Specific role: 'Project Owner', 'Contributor', 'Reviewer'
+    is_primary_contact INTEGER DEFAULT 0,  -- 1 for primary contact
+    permissions TEXT DEFAULT '{}',  -- JSON: {'can_upload': true, 'can_approve': false}
+    added_at TEXT DEFAULT (datetime('now')),
+    added_by TEXT,  -- Who added this stakeholder
+    FOREIGN KEY (use_case_id) REFERENCES use_cases(id) ON DELETE CASCADE,
+    FOREIGN KEY (stakeholder_id) REFERENCES stakeholders(id) ON DELETE CASCADE,
+    UNIQUE(use_case_id, stakeholder_id)  -- No duplicate stakeholders per use case
+);
+
+-- Stakeholder notification history table
+CREATE TABLE IF NOT EXISTS stakeholder_notifications (
+    id TEXT PRIMARY KEY,
+    use_case_id TEXT NOT NULL,
+    stakeholder_id TEXT NOT NULL,
+    model_id TEXT,  -- Optional: if notification is model-specific
+    notification_type TEXT NOT NULL,  -- 'qc_failed', 'eval_complete', 'awaiting_config', etc.
+    sent_at TEXT DEFAULT (datetime('now')),
+    status TEXT NOT NULL,  -- 'sent', 'failed', 'bounced'
+    email_subject TEXT,
+    error_message TEXT,  -- If sending failed
+    FOREIGN KEY (use_case_id) REFERENCES use_cases(id) ON DELETE CASCADE,
+    FOREIGN KEY (stakeholder_id) REFERENCES stakeholders(id) ON DELETE CASCADE,
+    FOREIGN KEY (model_id) REFERENCES model_evaluations(id) ON DELETE CASCADE
 );
 
 -- Use case state transitions table (for use case lifecycle)
@@ -177,9 +224,24 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- Indexes for Performance
 -- ============================================================================
 
+-- Stakeholder indexes
+CREATE INDEX IF NOT EXISTS idx_stakeholders_email ON stakeholders(email);
+CREATE INDEX IF NOT EXISTS idx_stakeholders_role ON stakeholders(role);
+
+-- Use case stakeholder indexes
+CREATE INDEX IF NOT EXISTS idx_use_case_stakeholders_use_case ON use_case_stakeholders(use_case_id);
+CREATE INDEX IF NOT EXISTS idx_use_case_stakeholders_stakeholder ON use_case_stakeholders(stakeholder_id);
+CREATE INDEX IF NOT EXISTS idx_use_case_stakeholders_primary ON use_case_stakeholders(use_case_id, is_primary_contact);
+
+-- Stakeholder notification indexes
+CREATE INDEX IF NOT EXISTS idx_stakeholder_notifications_use_case ON stakeholder_notifications(use_case_id);
+CREATE INDEX IF NOT EXISTS idx_stakeholder_notifications_stakeholder ON stakeholder_notifications(stakeholder_id);
+CREATE INDEX IF NOT EXISTS idx_stakeholder_notifications_model ON stakeholder_notifications(model_id);
+CREATE INDEX IF NOT EXISTS idx_stakeholder_notifications_type ON stakeholder_notifications(notification_type);
+CREATE INDEX IF NOT EXISTS idx_stakeholder_notifications_status ON stakeholder_notifications(status);
+
 -- Use case indexes
 CREATE INDEX IF NOT EXISTS idx_use_cases_state ON use_cases(state);
-CREATE INDEX IF NOT EXISTS idx_use_cases_team_email ON use_cases(team_email);
 CREATE INDEX IF NOT EXISTS idx_use_cases_created_at ON use_cases(created_at);
 
 -- Use case state history indexes
@@ -223,6 +285,12 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority D
 -- Triggers to Update Timestamps
 -- ============================================================================
 
+CREATE TRIGGER IF NOT EXISTS update_stakeholders_timestamp
+AFTER UPDATE ON stakeholders
+BEGIN
+    UPDATE stakeholders SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
 CREATE TRIGGER IF NOT EXISTS update_use_cases_timestamp
 AFTER UPDATE ON use_cases
 BEGIN
@@ -250,9 +318,17 @@ INSERT OR IGNORE INTO models (id, name, model_type, config, is_active) VALUES
     ('default-gpt4', 'GPT-4', 'azure_openai', '{"endpoint": "https://your-endpoint.openai.azure.com", "deployment": "gpt-4"}', 1),
     ('default-claude', 'Claude-3', 'bedrock', '{"model_id": "anthropic.claude-3-sonnet-20240229-v1:0", "region": "us-east-1"}', 1);
 
+-- Insert default stakeholder for demo/testing
+INSERT OR IGNORE INTO stakeholders (id, email, name, role, notification_enabled) VALUES
+    ('stakeholder_demo', 'demo@example.com', 'Demo User', 'data_scientist', 1);
+
 -- Insert default use case for demo/testing
-INSERT OR IGNORE INTO use_cases (id, name, team_email, state, created_at, updated_at) VALUES
-    ('default_use_case', 'Demo Use Case', 'demo@example.com', 'awaiting_config', datetime('now'), datetime('now'));
+INSERT OR IGNORE INTO use_cases (id, name, state, created_at, updated_at) VALUES
+    ('default_use_case', 'Demo Use Case', 'awaiting_config', datetime('now'), datetime('now'));
+
+-- Link default stakeholder to default use case
+INSERT OR IGNORE INTO use_case_stakeholders (id, use_case_id, stakeholder_id, role_in_use_case, is_primary_contact) VALUES
+    ('ucs_demo', 'default_use_case', 'stakeholder_demo', 'Project Owner', 1);
 
 -- ============================================================================
 -- Schema Version Tracking
@@ -276,7 +352,43 @@ INSERT OR IGNORE INTO schema_migrations (version, name, checksum, description) V
 -- Views for Convenience (Optional)
 -- ============================================================================
 
--- View: Model evaluations with use case info
+-- View: Use cases with primary contact
+CREATE VIEW IF NOT EXISTS v_use_cases_with_contact AS
+SELECT
+    u.id,
+    u.name,
+    u.state,
+    u.config_file_path,
+    u.created_at,
+    u.updated_at,
+    s.id as primary_contact_id,
+    s.email as primary_contact_email,
+    s.name as primary_contact_name,
+    s.role as primary_contact_role
+FROM use_cases u
+LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
+LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id;
+
+-- View: All stakeholders per use case
+CREATE VIEW IF NOT EXISTS v_use_case_team AS
+SELECT
+    u.id as use_case_id,
+    u.name as use_case_name,
+    u.state as use_case_state,
+    s.id as stakeholder_id,
+    s.email,
+    s.name as stakeholder_name,
+    s.role as stakeholder_general_role,
+    ucs.role_in_use_case,
+    ucs.is_primary_contact,
+    ucs.permissions,
+    ucs.added_at
+FROM use_cases u
+JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id
+JOIN stakeholders s ON ucs.stakeholder_id = s.id
+ORDER BY u.name, ucs.is_primary_contact DESC, s.name;
+
+-- View: Model evaluations with use case info and primary contact
 CREATE VIEW IF NOT EXISTS v_model_evaluations AS
 SELECT
     m.id,
@@ -287,10 +399,13 @@ SELECT
     m.updated_at,
     u.id as use_case_id,
     u.name as use_case_name,
-    u.team_email,
-    u.state as use_case_state
+    u.state as use_case_state,
+    s.email as primary_contact_email,
+    s.name as primary_contact_name
 FROM model_evaluations m
-JOIN use_cases u ON m.use_case_id = u.id;
+JOIN use_cases u ON m.use_case_id = u.id
+LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
+LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id;
 
 -- View: Latest state transitions per model
 CREATE VIEW IF NOT EXISTS v_latest_model_states AS
@@ -311,7 +426,7 @@ WHERE msh.id IN (
     LIMIT 1
 );
 
--- View: Models needing action (blocked states)
+-- View: Models needing action (blocked states) with primary contact
 CREATE VIEW IF NOT EXISTS v_models_needing_action AS
 SELECT
     m.id,
@@ -319,10 +434,13 @@ SELECT
     m.version,
     m.current_state,
     u.name as use_case_name,
-    u.team_email,
+    s.email as primary_contact_email,
+    s.name as primary_contact_name,
     m.updated_at
 FROM model_evaluations m
 JOIN use_cases u ON m.use_case_id = u.id
+LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
+LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id
 WHERE m.current_state IN (
     'awaiting_data_fix',
     'quality_check_failed',
