@@ -9,12 +9,14 @@
 ## Approach 1: Manual One-Time Setup (Simplest)
 
 ### When to Use
+
 - Development/testing
 - Proof-of-concept
 - Small projects
 - You want manual control
 
 ### How It Works
+
 **Run the schema file ONCE manually when setting up:**
 
 ```bash
@@ -30,6 +32,7 @@ python database/database_initialization.py
 ```
 
 ### Characteristics
+
 - ✅ Simple and explicit
 - ✅ Full control over when schema is created
 - ❌ Must remember to run on new environments
@@ -37,6 +40,7 @@ python database/database_initialization.py
 - ❌ No schema versioning
 
 ### When Schema Runs
+
 **Once** - When you manually execute it
 
 ---
@@ -44,12 +48,14 @@ python database/database_initialization.py
 ## Approach 2: Auto-Initialize on Startup (Recommended for Simple Apps)
 
 ### When to Use
+
 - Small to medium applications
 - Development environments
 - When you want "it just works" behavior
 - Single-server deployments
 
 ### How It Works
+
 **Schema runs automatically on first startup:**
 
 ```python
@@ -64,7 +70,9 @@ async def startup():
 ```
 
 ### Why It's Safe
+
 The schema uses `CREATE TABLE IF NOT EXISTS`:
+
 ```sql
 CREATE TABLE IF NOT EXISTS use_cases (...);
 CREATE TABLE IF NOT EXISTS models (...);
@@ -74,6 +82,7 @@ CREATE TABLE IF NOT EXISTS models (...);
 **Subsequent startups**: Tables exist → Does nothing
 
 ### Characteristics
+
 - ✅ Zero manual setup required
 - ✅ Works automatically in new environments
 - ✅ Safe to call multiple times (idempotent)
@@ -82,6 +91,7 @@ CREATE TABLE IF NOT EXISTS models (...);
 - ⚠️ Harder to manage schema changes
 
 ### When Schema Runs
+
 **Every startup** - But only creates missing tables
 
 ---
@@ -89,6 +99,7 @@ CREATE TABLE IF NOT EXISTS models (...);
 ## Approach 3: Version-Controlled Migrations (RECOMMENDED for Production)
 
 ### When to Use
+
 - Production environments
 - Team projects
 - When schema evolves over time
@@ -96,6 +107,7 @@ CREATE TABLE IF NOT EXISTS models (...);
 - Need audit trail of changes
 
 ### How It Works
+
 **Schema is split into versioned migration files:**
 
 ```
@@ -133,6 +145,7 @@ CREATE TABLE schema_migrations (
 ```
 
 **Example**:
+
 ```sql
 sqlite> SELECT * FROM schema_migrations;
 
@@ -146,6 +159,7 @@ version | name                    | applied_at          | execution_time_ms
 ### How Migrations Work
 
 #### Server 1 (First Deployment):
+
 ```
 1. apply_migrations() called
 2. Check schema_migrations table: empty
@@ -156,6 +170,7 @@ version | name                    | applied_at          | execution_time_ms
 ```
 
 #### Server 1 (Second Deployment - New Migration Added):
+
 ```
 1. apply_migrations() called
 2. Check schema_migrations: has [001, 002, 003]
@@ -167,6 +182,7 @@ version | name                    | applied_at          | execution_time_ms
 ```
 
 #### Server 2 (Fresh Install):
+
 ```
 1. apply_migrations() called
 2. Check schema_migrations: empty (new database)
@@ -178,6 +194,7 @@ version | name                    | applied_at          | execution_time_ms
 ```
 
 ### Characteristics
+
 - ✅ Full audit trail of schema changes
 - ✅ Safe for multiple servers
 - ✅ Rollback capability
@@ -187,28 +204,30 @@ version | name                    | applied_at          | execution_time_ms
 - ⚠️ Need to create migration files
 
 ### When Schema Runs
+
 **Each migration runs once** - Tracked in schema_migrations table
 
 ---
 
 ## Comparison Table
 
-| Feature | Manual Once | Auto-Initialize | Migrations |
-|---------|-------------|-----------------|------------|
-| **Setup Complexity** | Very Simple | Simple | Medium |
-| **Suitable For** | Development | Small Apps | Production |
-| **Schema Tracking** | ❌ No | ❌ No | ✅ Yes |
-| **Audit Trail** | ❌ No | ❌ No | ✅ Yes |
-| **Multi-Server Safe** | ⚠️ Manual | ⚠️ Mostly | ✅ Yes |
-| **Schema Evolution** | ❌ Hard | ⚠️ Medium | ✅ Easy |
-| **New Developer Setup** | Manual | Automatic | Automatic |
-| **Deployment Process** | Manual | Automatic | Automatic |
+| Feature                 | Manual Once | Auto-Initialize | Migrations |
+| ----------------------- | ----------- | --------------- | ---------- |
+| **Setup Complexity**    | Very Simple | Simple          | Medium     |
+| **Suitable For**        | Development | Small Apps      | Production |
+| **Schema Tracking**     | ❌ No       | ❌ No           | ✅ Yes     |
+| **Audit Trail**         | ❌ No       | ❌ No           | ✅ Yes     |
+| **Multi-Server Safe**   | ⚠️ Manual   | ⚠️ Mostly       | ✅ Yes     |
+| **Schema Evolution**    | ❌ Hard     | ⚠️ Medium       | ✅ Easy    |
+| **New Developer Setup** | Manual      | Automatic       | Automatic  |
+| **Deployment Process**  | Manual      | Automatic       | Automatic  |
 
 ---
 
 ## Recommended Strategy by Environment
 
 ### Development
+
 ```python
 # In main.py
 from database.database_initialization import initialize_on_app_startup
@@ -221,6 +240,7 @@ async def startup():
 **Why**: Auto-initialize = zero friction for developers
 
 ### Staging/Testing
+
 ```python
 # In deployment script
 from database.database_initialization import DatabaseInitializer
@@ -232,6 +252,7 @@ db_init.apply_migrations()  # Runs pending migrations
 **Why**: Test migrations before production
 
 ### Production
+
 ```python
 # In deployment pipeline
 from database.database_initialization import initialize_for_production
@@ -311,6 +332,7 @@ for entry in history:
 ### Q: What if I change schema_sqlite.sql after initial setup?
 
 **Manual/Auto-Initialize**: Changes won't be applied automatically. You'd need to:
+
 - Drop and recreate database (loses data!)
 - Or manually run ALTER TABLE commands
 
@@ -319,6 +341,7 @@ for entry in history:
 ### Q: Can I use both schema_sqlite.sql and migrations?
 
 **Yes!** Common pattern:
+
 1. `001_initial_schema.sql` = copy of `schema_sqlite.sql`
 2. Future changes go in `002_xxx.sql`, `003_xxx.sql`, etc.
 3. Keep `schema_sqlite.sql` as reference documentation
@@ -326,6 +349,7 @@ for entry in history:
 ### Q: What happens if migration fails halfway?
 
 **With transactions**: Changes are rolled back
+
 ```python
 try:
     conn.executescript(migration_sql)  # Atomic
@@ -337,6 +361,7 @@ except:
 ### Q: How do I rollback a migration?
 
 **Option 1**: Create reverse migration
+
 ```sql
 -- 005_rollback_cache_table.sql
 DROP TABLE IF EXISTS quality_check_cache;
@@ -345,6 +370,7 @@ ALTER TABLE model_evaluations DROP COLUMN last_qc_cache_hit;
 ```
 
 **Option 2**: Restore from backup
+
 ```bash
 cp data/evaluation.db.backup data/evaluation.db
 ```
@@ -352,6 +378,7 @@ cp data/evaluation.db.backup data/evaluation.db
 ### Q: Multiple servers running at once?
 
 **Migrations approach is safe:**
+
 - SQLite uses file locking
 - First server to run migration wins
 - Other servers wait or skip (already applied)
@@ -428,6 +455,7 @@ python database/database_initialization.py --force
 ## Best Practices
 
 ### ✅ DO:
+
 - Use migrations for production
 - Track all schema changes in version control
 - Test migrations on staging first
@@ -436,6 +464,7 @@ python database/database_initialization.py --force
 - Use descriptive migration names
 
 ### ❌ DON'T:
+
 - Edit applied migration files
 - Skip migration versions
 - Run schema_sqlite.sql directly in production
@@ -455,10 +484,12 @@ python database/database_initialization.py --force
 3. **Migrations**: Split into versioned files, each runs once (tracked in DB)
 
 **Recommendation**:
+
 - **Development**: Auto-initialize (approach #2)
 - **Production**: Migrations (approach #3)
 
 The `schema_sqlite.sql` file serves as:
+
 - Initial schema for approach #1 and #2
 - Template for migration #001 in approach #3
 - Reference documentation of current schema
