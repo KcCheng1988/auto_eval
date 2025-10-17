@@ -126,20 +126,19 @@ CREATE TABLE IF NOT EXISTS model_evaluations (
     UNIQUE(use_case_id, model_id, model_version)  -- One evaluation per model version per use case
 );
 
--- Model evaluation state history table - Track state transitions for evaluations
+-- Model state history table - Track state changes for model configurations
 CREATE TABLE IF NOT EXISTS model_state_history (
     id TEXT PRIMARY KEY,
-    model_evaluation_id TEXT NOT NULL,  -- FK to model_evaluations
+    model_id TEXT NOT NULL,             -- Part of composite FK
+    model_version TEXT NOT NULL,        -- Part of composite FK
     from_state TEXT,                    -- Previous state (NULL for initial)
-    to_state TEXT NOT NULL,             -- New state
+    to_state TEXT NOT NULL,             -- New state (e.g., 'active', 'deprecated', 'retired')
     triggered_by TEXT NOT NULL,         -- Who/what triggered transition
     trigger_reason TEXT NOT NULL,       -- Why transition happened
-    file_uploaded TEXT,                 -- File path if upload triggered transition
-    quality_issues_count INTEGER,       -- Number of issues if QC related
-    error_message TEXT,                 -- Error details if failure
+    config_changes TEXT,                -- JSON: what configuration changed
     additional_data TEXT,               -- JSON for extra context
     timestamp TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (model_evaluation_id) REFERENCES model_evaluations(id) ON DELETE CASCADE
+    FOREIGN KEY (model_id, model_version) REFERENCES models(model_id, version) ON DELETE CASCADE
 );
 
 -- Quality check results table - Store detailed QC results per model
@@ -291,7 +290,7 @@ CREATE INDEX IF NOT EXISTS idx_model_evaluations_state ON model_evaluations(curr
 CREATE INDEX IF NOT EXISTS idx_model_evaluations_use_case_model ON model_evaluations(use_case_id, model_id);
 
 -- Model state history indexes
-CREATE INDEX IF NOT EXISTS idx_model_state_history_eval ON model_state_history(model_evaluation_id);
+CREATE INDEX IF NOT EXISTS idx_model_state_history_model ON model_state_history(model_id, model_version);
 CREATE INDEX IF NOT EXISTS idx_model_state_history_timestamp ON model_state_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_model_state_history_state ON model_state_history(to_state);
 
@@ -482,25 +481,22 @@ JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
 LEFT JOIN use_case_stakeholders ucs ON u.id = ucs.use_case_id AND ucs.is_primary_contact = 1
 LEFT JOIN stakeholders s ON ucs.stakeholder_id = s.id;
 
--- View: Latest state transitions per model evaluation
-CREATE VIEW IF NOT EXISTS v_latest_evaluation_states AS
+-- View: Latest state per model version
+CREATE VIEW IF NOT EXISTS v_latest_model_states AS
 SELECT
-    msh.model_evaluation_id as evaluation_id,
+    msh.model_id,
+    msh.model_version,
+    m.name as model_name,
+    m.provider,
     msh.to_state as current_state,
     msh.triggered_by,
-    msh.timestamp,
-    me.use_case_id,
-    me.model_id,
-    me.model_version,
-    m.name as model_name,
-    m.provider
+    msh.timestamp
 FROM model_state_history msh
-JOIN model_evaluations me ON msh.model_evaluation_id = me.id
-JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
+JOIN models m ON msh.model_id = m.model_id AND msh.model_version = m.version
 WHERE msh.id IN (
     SELECT id
     FROM model_state_history
-    WHERE model_evaluation_id = msh.model_evaluation_id
+    WHERE model_id = msh.model_id AND model_version = msh.model_version
     ORDER BY timestamp DESC
     LIMIT 1
 );
@@ -586,27 +582,21 @@ SELECT
 FROM models
 ORDER BY model_id, created_at DESC;
 
--- View: Complete state transition history for evaluations
-CREATE VIEW IF NOT EXISTS v_state_transitions AS
+-- View: Complete model state transition history
+CREATE VIEW IF NOT EXISTS v_model_state_transitions AS
 SELECT
     msh.id as transition_id,
-    msh.model_evaluation_id,
-    me.use_case_id,
-    u.name as use_case_name,
-    me.model_id,
-    me.model_version,
+    msh.model_id,
+    msh.model_version,
     m.name as model_name,
     m.provider,
+    m.model_type,
     msh.from_state,
     msh.to_state,
     msh.triggered_by,
     msh.trigger_reason,
-    msh.file_uploaded,
-    msh.quality_issues_count,
-    msh.error_message,
+    msh.config_changes,
     msh.timestamp
 FROM model_state_history msh
-JOIN model_evaluations me ON msh.model_evaluation_id = me.id
-JOIN use_cases u ON me.use_case_id = u.id
-JOIN models m ON me.model_id = m.model_id AND me.model_version = m.version
+JOIN models m ON msh.model_id = m.model_id AND msh.model_version = m.version
 ORDER BY msh.timestamp DESC;
