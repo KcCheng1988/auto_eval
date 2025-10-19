@@ -43,7 +43,12 @@ class UseCase:
         team_email: str,
         initial_state: 'UseCaseState'
     ) -> 'UseCase':
-        """Factory method to create new use case"""
+        """
+        Factory method for creating NEW use cases (from user input).
+
+        Use this when a user submits a new use case.
+        Generates ID and timestamps automatically.
+        """
         now = datetime.now()
         return cls(
             id=str(uuid.uuid4()),
@@ -52,6 +57,30 @@ class UseCase:
             state=initial_state,
             created_at=now,
             updated_at=now
+        )
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'UseCase':
+        """
+        Factory method for reconstructing EXISTING use cases (from database/API).
+
+        Use this when loading from database or deserializing from JSON.
+        Handles type conversions (strings → datetime, enums, etc.)
+        """
+        from .state_machine import UseCaseState
+
+        return cls(
+            id=data['id'],
+            name=data['name'],
+            team_email=data['team_email'],
+            state=UseCaseState(data['state']) if isinstance(data['state'], str) else data['state'],
+            created_at=datetime.fromisoformat(data['created_at']) if isinstance(data['created_at'], str) else data['created_at'],
+            updated_at=datetime.fromisoformat(data['updated_at']) if isinstance(data['updated_at'], str) else data['updated_at'],
+            config_file_path=data.get('config_file_path'),
+            dataset_file_path=data.get('dataset_file_path'),
+            quality_issues=data.get('quality_issues'),
+            evaluation_results=data.get('evaluation_results'),
+            metadata=data.get('metadata', {})
         )
 
     def has_quality_issues(self) -> bool:
@@ -69,7 +98,11 @@ class UseCase:
         )
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """
+        Serialize to dictionary.
+
+        Use this when saving to database or returning from API.
+        """
         return {
             'id': self.id,
             'name': self.name,
@@ -106,7 +139,12 @@ class Model:
         model_name: str,
         version: str
     ) -> 'Model':
-        """Factory method to create new model"""
+        """
+        Factory method for creating NEW models.
+
+        Use this when a user registers a new model.
+        Generates ID and timestamp automatically.
+        """
         return cls(
             id=str(uuid.uuid4()),
             use_case_id=use_case_id,
@@ -115,8 +153,29 @@ class Model:
             created_at=datetime.now()
         )
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Model':
+        """
+        Factory method for reconstructing EXISTING models (from database/API).
+
+        Use this when loading from database or deserializing from JSON.
+        Handles type conversions (strings → datetime).
+        """
+        return cls(
+            id=data['id'],
+            use_case_id=data['use_case_id'],
+            model_name=data['model_name'],
+            version=data['version'],
+            created_at=datetime.fromisoformat(data['created_at']) if isinstance(data['created_at'], str) else data['created_at'],
+            metadata=data.get('metadata', {})
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """
+        Serialize to dictionary.
+
+        Use this when saving to database or returning from API.
+        """
         return {
             'id': self.id,
             'use_case_id': self.use_case_id,
@@ -151,7 +210,12 @@ class EvaluationResult:
         team: str,
         task_type: TaskType
     ) -> 'EvaluationResult':
-        """Factory method to create new evaluation result"""
+        """
+        Factory method for creating NEW evaluation results.
+
+        Use this when starting a new evaluation.
+        Generates ID and timestamp automatically.
+        """
         return cls(
             id=str(uuid.uuid4()),
             use_case_id=use_case_id,
@@ -160,8 +224,33 @@ class EvaluationResult:
             task_type=task_type
         )
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'EvaluationResult':
+        """
+        Factory method for reconstructing EXISTING evaluation results (from database/API).
+
+        Use this when loading from database or deserializing from JSON.
+        Handles type conversions (strings → datetime, enums).
+        """
+        return cls(
+            id=data['id'],
+            use_case_id=data['use_case_id'],
+            model_id=data['model_id'],
+            team=data['team'],
+            task_type=TaskType(data['task_type']) if isinstance(data['task_type'], str) else data['task_type'],
+            accuracy=data.get('accuracy'),
+            classification_metrics=data.get('classification_metrics'),
+            agreement_rate=data.get('agreement_rate'),
+            evaluated_at=datetime.fromisoformat(data['evaluated_at']) if isinstance(data['evaluated_at'], str) else data['evaluated_at'],
+            metadata=data.get('metadata', {})
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """
+        Serialize to dictionary.
+
+        Use this when saving to database or returning from API.
+        """
         return {
             'id': self.id,
             'use_case_id': self.use_case_id,
@@ -196,7 +285,12 @@ class ActivityLog:
         description: str,
         metadata: Optional[Dict[str, Any]] = None
     ) -> 'ActivityLog':
-        """Factory method to create new activity log"""
+        """
+        Factory method for creating NEW activity logs.
+
+        Use this when logging a new activity.
+        Generates ID and timestamp automatically.
+        """
         return cls(
             id=str(uuid.uuid4()),
             use_case_id=use_case_id,
@@ -206,8 +300,29 @@ class ActivityLog:
             created_at=datetime.now()
         )
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ActivityLog':
+        """
+        Factory method for reconstructing EXISTING activity logs (from database/API).
+
+        Use this when loading from database or deserializing from JSON.
+        Handles type conversions (strings → datetime).
+        """
+        return cls(
+            id=data['id'],
+            use_case_id=data['use_case_id'],
+            activity_type=data['activity_type'],
+            description=data['description'],
+            metadata=data.get('metadata', {}),
+            created_at=datetime.fromisoformat(data['created_at']) if isinstance(data['created_at'], str) else data['created_at']
+        )
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization"""
+        """
+        Serialize to dictionary.
+
+        Use this when saving to database or returning from API.
+        """
         return {
             'id': self.id,
             'use_case_id': self.use_case_id,
