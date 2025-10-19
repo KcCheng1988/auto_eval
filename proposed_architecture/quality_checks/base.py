@@ -2,40 +2,10 @@
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from enum import Enum
 import pandas as pd
 
-
-class IssueSeverity(Enum):
-    """Severity levels for quality issues"""
-    ERROR = "error"        # Blocks evaluation
-    WARNING = "warning"    # Doesn't block, but should be reviewed
-    INFO = "info"          # Informational only
-
-
-@dataclass
-class QualityIssue:
-    """Represents a single quality check failure"""
-    row_number: int              # Excel row number (1-indexed with header)
-    field_name: str              # Field that failed
-    value: Any                   # Actual value that failed
-    issue_type: str              # Type of issue (e.g., "invalid_date")
-    message: str                 # Human-readable description
-    severity: IssueSeverity      # ERROR, WARNING, or INFO
-    suggestion: Optional[str] = None  # Suggested fix
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization"""
-        return {
-            'row_number': self.row_number,
-            'field_name': self.field_name,
-            'value': str(self.value),
-            'issue_type': self.issue_type,
-            'message': self.message,
-            'severity': self.severity.value,
-            'suggestion': self.suggestion
-        }
+# Import domain models
+from ..domain import QualityIssue, IssueSeverity
 
 
 class QualityCheckStrategy(ABC):
