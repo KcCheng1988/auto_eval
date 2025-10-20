@@ -11,8 +11,8 @@ import json
 import sqlite3
 import logging
 
-from ..domain.models import Model
-from ..domain.model_state_machine import (
+from ..domain import Model
+from ..domain import (
     ModelEvaluationStateMachine,
     ModelEvaluationState,
     ModelStateTransitionMetadata
@@ -30,71 +30,15 @@ class ModelEvaluationRepository:
     2. Reconstruct state machine with full history
     3. Persist state transitions back to database
     4. Maintain data integrity
+
+    Note: Database schema is managed by DatabaseInitializer,
+    not by this repository. See database/schema_sqlite.sql for schema definition.
     """
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._init_tables()
-
-    def _init_tables(self):
-        """Initialize database tables for model evaluations"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Model evaluations table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS model_evaluations (
-                id TEXT PRIMARY KEY,
-                use_case_id TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                version TEXT NOT NULL,
-                current_state TEXT NOT NULL,
-                dataset_file_path TEXT,
-                predictions_file_path TEXT,
-                quality_issues TEXT,  -- JSON
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                metadata TEXT,  -- JSON
-                FOREIGN KEY (use_case_id) REFERENCES use_cases(id),
-                UNIQUE(use_case_id, model_name, version)
-            )
-        ''')
-
-        # State history table - this is crucial for audit trail
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS model_state_history (
-                id TEXT PRIMARY KEY,
-                model_id TEXT NOT NULL,
-                from_state TEXT,
-                to_state TEXT NOT NULL,
-                triggered_by TEXT NOT NULL,
-                trigger_reason TEXT NOT NULL,
-                file_uploaded TEXT,
-                quality_issues_count INTEGER,
-                error_message TEXT,
-                additional_data TEXT,  -- JSON
-                timestamp TEXT NOT NULL,
-                FOREIGN KEY (model_id) REFERENCES model_evaluations(id)
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_model_use_case
-            ON model_evaluations(use_case_id)
-        ''')
-
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_model_state
-            ON model_evaluations(current_state)
-        ''')
-
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_state_history
-            ON model_state_history(model_id, timestamp DESC)
-        ''')
-
-        conn.commit()
-        conn.close()
+        # Schema initialization is handled by DatabaseInitializer
+        # NOT by individual repositories (single source of truth!)
 
     # ============================================================================
     # STATE EXTRACTION - Reading state from database
