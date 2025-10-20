@@ -471,7 +471,7 @@ def initialize_for_production():
         raise RuntimeError("Schema verification failed")
 
 
-def initialize_on_app_startup(db_path: str):
+def initialize_on_app_startup(db_path: str) -> str:
     """
     Application startup (auto-initialize approach)
 
@@ -481,11 +481,19 @@ def initialize_on_app_startup(db_path: str):
 
         @app.on_event("startup")
         async def startup():
-            initialize_on_app_startup('data/evaluation.db')
+            db_path = initialize_on_app_startup('data/evaluation.db')
+            # Use db_path to create repositories
+
+    Args:
+        db_path: Path to SQLite database file
+
+    Returns:
+        str: Path to initialized database (same as input, for convenience)
     """
     db_init = DatabaseInitializer(db_path)
     db_init.auto_initialize()  # Safe to call every time
     logger.info(f"Database ready: {db_path} (version: {db_init.get_schema_version()})")
+    return db_path
 
 
 # ============================================================================
