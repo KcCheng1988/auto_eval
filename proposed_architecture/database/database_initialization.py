@@ -56,12 +56,16 @@ class DatabaseInitializer:
         - Manual control over when schema is created
 
         Args:
-            force: If True, recreate tables even if they exist
+            force: If True, delete existing database and recreate from scratch
+                   ⚠️ WARNING: This DESTROYS ALL DATA!
 
         Usage:
             # During initial setup (run once manually)
             initializer = DatabaseInitializer('evaluation.db')
             initializer.initialize_once()
+
+            # Force recreate (⚠️ destroys data!)
+            initializer.initialize_once(force=True)
 
             # Or in deployment script:
             python -c "from database_initialization import DatabaseInitializer; \
@@ -73,6 +77,13 @@ class DatabaseInitializer:
         if self.db_path.exists() and not force:
             logger.warning(f"Database {self.db_path} already exists. Use force=True to recreate.")
             return
+
+        # If force=True and database exists, delete it first
+        if force and self.db_path.exists():
+            logger.warning(f"⚠️  FORCE MODE: Deleting existing database at {self.db_path}")
+            logger.warning("⚠️  ALL DATA WILL BE LOST!")
+            self.db_path.unlink()  # Delete the database file
+            logger.info(f"✓ Existing database deleted")
 
         # Create parent directory if needed
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,10 +101,10 @@ class DatabaseInitializer:
         try:
             conn.executescript(schema_sql)
             conn.commit()
-            logger.info(f"Database initialized successfully: {self.db_path}")
+            logger.info(f"✓ Database initialized successfully: {self.db_path}")
         except Exception as e:
             conn.rollback()
-            logger.error(f"Failed to initialize database: {e}")
+            logger.error(f"✗ Failed to initialize database: {e}")
             raise
         finally:
             conn.close()
